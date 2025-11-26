@@ -147,7 +147,8 @@ class CSVLoader:
         # Parse weekday values
         weekdays = {}
         for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
-            value_str = normalized_dict.get(day, '').strip()
+            value = normalized_dict.get(day, '')
+            value_str = value.strip() if value is not None else ''
             weekdays[day] = self._parse_hours_value(value_str, day, line_num)
 
         return TimesheetRow(
