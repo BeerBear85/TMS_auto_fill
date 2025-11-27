@@ -100,7 +100,7 @@ python -m timesheet_bot fill --csv data/week48.csv
 python -m timesheet_bot fill --csv data/week48.csv --headless
 ```
 
-**Auto-submit after filling** (clicks Promark button automatically):
+**Auto-save after filling** (clicks Save button automatically):
 
 ```bash
 python -m timesheet_bot fill --csv data/week48.csv --auto-submit
@@ -126,7 +126,7 @@ Options:
   --week NUM           Week number 1-53 (optional)
   --year YEAR          Year e.g., 2025 (optional)
   --headless           Run browser in headless mode
-  --auto-submit        Automatically click Promark after filling
+  --auto-submit        Automatically click Save button after filling
   --no-overwrite       Skip fields that already have values
   --dry-run            Parse CSV and show plan without opening browser
   --verbose, -v        Enable verbose logging
@@ -143,7 +143,7 @@ Options:
    - Fills hours into the correct weekday input fields
    - Skips empty CSV cells
    - Respects `--no-overwrite` flag
-6. **Optional submit** - If `--auto-submit` is enabled, clicks the Promark button
+6. **Optional save** - If `--auto-submit` is enabled, waits for and clicks the Save button (which appears after data entry)
 7. **Show summary** - Displays results including filled cells, errors, and daily totals
 
 ## Project Structure
@@ -189,7 +189,8 @@ The tool uses Playwright selectors defined in `timesheet_bot/selectors.py`. Thes
 - **Table**: `table[mat-table]` (Angular Material table)
 - **Project rows**: `tr.mat-row:has(td.cdk-column-Project:has-text("PROJECT_NUMBER"))`
 - **Weekday inputs**: `input[name="monday"].dayField` (and similar for other days)
-- **Promark button**: `a:has-text("Promark")`
+- **Save button**: `button:has-text("Save")` (appears after data entry)
+- **Promark button**: `a:has-text("Promark")` (for final submission)
 
 ### Troubleshooting Selectors
 
@@ -364,6 +365,12 @@ For issues, questions, or contributions:
 - Include logs when reporting bugs (use `--verbose`)
 
 ## Changelog
+
+### Version 1.1.0 (Current)
+- **Fixed**: Page loading issue - now uses `domcontentloaded` strategy for faster navigation
+- **Changed**: Auto-submit now clicks Save button instead of Promark (saves draft, doesn't submit)
+- **Improved**: Save button detection with multiple fallback selectors
+- **Enhanced**: Robust waiting for Save button to appear dynamically after data entry
 
 ### Version 1.0.0
 - Initial release

@@ -27,6 +27,14 @@ class TMSSelectors:
     # We use tbody to skip header/footer rows
     TABLE_ROWS = 'tbody tr[mat-row]'
 
+    # Save button (appears after data entry)
+    # The "Save" button appears dynamically after filling data
+    SAVE_BUTTON = 'button:has-text("Save")'
+
+    # Alternative save button selectors
+    SAVE_BUTTON_ALT = 'a:has-text("Save")'
+    SAVE_BUTTON_ALT2 = 'button.btn:has-text("Save")'
+
     # Submit button
     # The "Promark" button is a link with specific text
     PROMARK_BUTTON = 'a:has-text("Promark")'

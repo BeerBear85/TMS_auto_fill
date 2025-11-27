@@ -91,7 +91,11 @@ class TMSClient:
         log_step(f"Navigating to {self.config.tms_url}...", self.logger)
 
         try:
-            self.page.goto(self.config.tms_url, timeout=self.config.navigation_timeout)
+            self.page.goto(
+                self.config.tms_url,
+                timeout=self.config.navigation_timeout,
+                wait_until='domcontentloaded'
+            )
             self.logger.debug("Navigation successful")
         except Exception as e:
             log_error(f"Failed to navigate: {e}", self.logger)
@@ -335,6 +339,59 @@ class TMSClient:
             log_warning(f"    {weekday}: error - {e}", self.logger)
             return result
 
+    def click_save(self) -> bool:
+        """
+        Click the "Save" button (appears after data entry).
+
+        The Save button only appears dynamically after data has been entered,
+        so this method waits for it to become visible before clicking.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        log_step("Waiting for Save button to appear...", self.logger)
+
+        try:
+            # Wait for the Save button to appear (it shows after data entry)
+            # Try primary selector first
+            button = self.page.locator(TMSSelectors.SAVE_BUTTON).first
+
+            try:
+                button.wait_for(state='visible', timeout=5000)  # 5 second wait
+                self.logger.debug("Save button found")
+            except PlaywrightTimeoutError:
+                # Try alternative selectors
+                self.logger.debug("Trying alternative Save button selectors...")
+                button = self.page.locator(TMSSelectors.SAVE_BUTTON_ALT).first
+
+                try:
+                    button.wait_for(state='visible', timeout=2000)
+                except PlaywrightTimeoutError:
+                    button = self.page.locator(TMSSelectors.SAVE_BUTTON_ALT2).first
+                    button.wait_for(state='visible', timeout=2000)
+
+            if button.count() == 0:
+                log_error("Save button not found after waiting", self.logger)
+                return False
+
+            # Click the button
+            log_step("Clicking Save button...", self.logger)
+            button.click()
+            log_success("Save button clicked", self.logger)
+
+            # Wait for the save action to process
+            self.page.wait_for_timeout(1500)
+
+            return True
+
+        except PlaywrightTimeoutError:
+            log_error("Save button did not appear (timeout)", self.logger)
+            log_warning("Note: Save button only appears after data entry", self.logger)
+            return False
+        except Exception as e:
+            log_error(f"Failed to click Save: {e}", self.logger)
+            return False
+
     def click_promark(self) -> bool:
         """
         Click the "Promark" submit button.
@@ -411,13 +468,13 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
         # Fill the timesheet
         summary = client.fill_timesheet(rows)
 
-        # Auto-submit if requested
+        # Auto-save if requested
         if config.auto_submit:
             logger.info("")
-            if not client.click_promark():
-                log_warning("Auto-submit failed", logger)
+            if not client.click_save():
+                log_warning("Auto-save failed", logger)
         else:
             logger.info("")
-            logger.info("Auto-submit disabled. Review the timesheet manually.")
+            logger.info("Auto-save disabled. Remember to click Save manually.")
 
         return summary
