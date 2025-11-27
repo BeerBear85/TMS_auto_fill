@@ -13,6 +13,7 @@ from .config import Config
 from .csv_loader import load_csv, CSVLoadError
 from .playwright_client import run_fill_operation
 from .logging_utils import setup_logging, get_logger, log_section, log_error
+from .week_utils import parse_week_range, WeekRangeParseError
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -37,8 +38,14 @@ Examples:
   # Fill timesheet in headless mode
   python -m timesheet_bot fill --csv data/week48.csv --headless
 
-  # Fill with auto-submit (click Promark automatically)
-  python -m timesheet_bot fill --csv data/week48.csv --auto-submit
+  # Fill multiple weeks (same CSV for each week)
+  python -m timesheet_bot fill --csv data/week48.csv --weeks 48-50
+
+  # Fill specific weeks
+  python -m timesheet_bot fill --csv data/week48.csv --weeks 48,49,50,52
+
+  # Fill with auto-submit (saves after each week)
+  python -m timesheet_bot fill --csv data/week48.csv --weeks 48-50 --auto-submit
 
   # Fill without overwriting existing values
   python -m timesheet_bot fill --csv data/week48.csv --no-overwrite
@@ -79,6 +86,13 @@ Examples:
         type=int,
         metavar='YEAR',
         help='Year (e.g., 2025)'
+    )
+
+    fill_parser.add_argument(
+        '--weeks',
+        type=str,
+        metavar='RANGE',
+        help='Week range to fill (e.g., "48-50,52" or "48,49,50"). If not specified, fills only the currently visible week.'
     )
 
     fill_parser.add_argument(
@@ -138,6 +152,18 @@ def validate_args(args: argparse.Namespace) -> bool:
         log_error(f"CSV file not found: {args.csv}", logger)
         return False
 
+    # Parse and validate weeks argument if provided
+    if args.weeks:
+        try:
+            parsed_weeks = parse_week_range(args.weeks)
+            args.parsed_weeks = parsed_weeks
+            logger.debug(f"Parsed weeks: {parsed_weeks}")
+        except WeekRangeParseError as e:
+            log_error(f"Invalid --weeks argument: {e}", logger)
+            return False
+    else:
+        args.parsed_weeks = None
+
     return True
 
 
@@ -158,6 +184,7 @@ def cmd_fill(args: argparse.Namespace) -> int:
         csv_path=args.csv,
         week=args.week,
         year=args.year,
+        weeks=args.parsed_weeks,
         headless=args.headless,
         auto_submit=args.auto_submit,
         no_overwrite=args.no_overwrite,

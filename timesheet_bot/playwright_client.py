@@ -17,6 +17,7 @@ from .models import (
 )
 from .selectors import TMSSelectors
 from .logging_utils import get_logger, log_step, log_error, log_warning, log_success
+from .week_utils import parse_week_display, calculate_week_offset, validate_week_offset
 
 
 class TMSClient:
@@ -148,6 +149,167 @@ class TMSClient:
         except PlaywrightTimeoutError:
             log_error("Timesheet table not found", self.logger)
             return False
+
+    def detect_baseline_week(self) -> tuple[int, int]:
+        """
+        Detect the current week (baseline) from the DOM.
+
+        Returns:
+            Tuple of (year, week_number)
+
+        Raises:
+            Exception: If baseline week cannot be detected
+        """
+        log_step("Detecting baseline week from DOM...", self.logger)
+
+        try:
+            # Try to find the week display element
+            # We'll search through various possible selectors
+            week_text = None
+
+            # Try to get text from page that contains week information
+            # Look for patterns like "Week 48, 2025" in the page
+            page_text = self.page.text_content('body')
+
+            if page_text:
+                # Try to parse week info from the page text
+                import re
+                patterns = [
+                    r'[Ww]eek\s*(\d+)[,\s]+(\d{4})',
+                    r'[Ww](\d+)\s+(\d{4})',
+                    r'KW\s*(\d+)[,\s]+(\d{4})',  # German: Kalenderwoche
+                ]
+
+                for pattern in patterns:
+                    match = re.search(pattern, page_text)
+                    if match:
+                        week_num = int(match.group(1))
+                        year = int(match.group(2))
+                        self.logger.info(f"Detected baseline week: Week {week_num}, {year}")
+                        return (year, week_num)
+
+            # If we couldn't find it in page text, raise an error
+            raise Exception(
+                "Could not detect baseline week from DOM. "
+                "Please ensure the week selector is visible on the page."
+            )
+
+        except Exception as e:
+            log_error(f"Failed to detect baseline week: {e}", self.logger)
+            raise
+
+    def verify_current_week(self, expected_year: int, expected_week: int) -> bool:
+        """
+        Verify that the currently displayed week matches the expected week.
+
+        Args:
+            expected_year: Expected year
+            expected_week: Expected week number
+
+        Returns:
+            True if the current week matches, False otherwise
+
+        Raises:
+            Exception: If verification fails critically
+        """
+        try:
+            current_year, current_week = self.detect_baseline_week()
+
+            if current_year == expected_year and current_week == expected_week:
+                self.logger.debug(f"Week verification passed: Week {current_week}, {current_year}")
+                return True
+            else:
+                log_error(
+                    f"Week verification failed: Expected Week {expected_week}, {expected_year} "
+                    f"but found Week {current_week}, {current_year}",
+                    self.logger
+                )
+                return False
+
+        except Exception as e:
+            log_error(f"Week verification error: {e}", self.logger)
+            raise
+
+    def navigate_to_week(self, target_year: int, target_week: int,
+                        baseline_year: int, baseline_week: int) -> bool:
+        """
+        Navigate to a specific week using the week arrow buttons.
+
+        Args:
+            target_year: Target year
+            target_week: Target week number
+            baseline_year: Baseline (current) year
+            baseline_week: Baseline (current) week number
+
+        Returns:
+            True if navigation successful, False otherwise
+
+        Raises:
+            ValueError: If offset exceeds allowed bounds
+            Exception: If navigation fails
+        """
+        # Calculate offset
+        offset = calculate_week_offset(baseline_year, baseline_week, target_year, target_week)
+
+        self.logger.info(
+            f"Navigating from Week {baseline_week}, {baseline_year} "
+            f"to Week {target_week}, {target_year} (offset: {offset:+d})"
+        )
+
+        # Validate offset is within bounds
+        try:
+            validate_week_offset(offset, max_forward=10, max_backward=20)
+        except ValueError as e:
+            log_error(str(e), self.logger)
+            raise
+
+        # If offset is 0, we're already on the target week
+        if offset == 0:
+            self.logger.info("Already on target week, no navigation needed")
+            return True
+
+        # Determine which arrow to click and how many times
+        if offset > 0:
+            # Navigate forward (right arrow)
+            arrow_selector = TMSSelectors.WEEK_ARROW_RIGHT
+            direction = "forward"
+            clicks = offset
+        else:
+            # Navigate backward (left arrow)
+            arrow_selector = TMSSelectors.WEEK_ARROW_LEFT
+            direction = "backward"
+            clicks = abs(offset)
+
+        self.logger.info(f"Clicking {direction} arrow {clicks} time(s)...")
+
+        try:
+            for i in range(clicks):
+                # Find the arrow button
+                arrow_button = self.page.locator(arrow_selector).first
+
+                if arrow_button.count() == 0:
+                    raise Exception(f"Week navigation arrow ({direction}) not found")
+
+                # Click the arrow
+                arrow_button.click()
+
+                # Wait for the page to update
+                self.page.wait_for_timeout(500)  # 500ms wait between clicks
+
+                self.logger.debug(f"  Click {i+1}/{clicks} completed")
+
+            # Verify we reached the target week
+            if not self.verify_current_week(target_year, target_week):
+                raise Exception(
+                    f"Navigation verification failed: did not reach Week {target_week}, {target_year}"
+                )
+
+            log_success(f"Successfully navigated to Week {target_week}, {target_year}", self.logger)
+            return True
+
+        except Exception as e:
+            log_error(f"Navigation failed: {e}", self.logger)
+            raise
 
     def fill_timesheet(self, rows: List[TimesheetRow]) -> FillSummary:
         """
@@ -442,6 +604,8 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
     """
     Execute the complete fill operation.
 
+    Supports filling multiple weeks if config.weeks is specified.
+
     Args:
         config: Application configuration
         rows: Timesheet rows to fill
@@ -465,16 +629,89 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
         if not client.wait_for_table():
             raise Exception("Failed to find timesheet table after login")
 
-        # Fill the timesheet
-        summary = client.fill_timesheet(rows)
+        # Detect baseline week
+        logger.info("")
+        baseline_year, baseline_week = client.detect_baseline_week()
 
-        # Auto-save if requested
-        if config.auto_submit:
-            logger.info("")
-            if not client.click_save():
-                log_warning("Auto-save failed", logger)
+        # Determine which weeks to process
+        if config.weeks is not None and len(config.weeks) > 0:
+            # Multi-week mode
+            weeks_to_process = config.weeks
+            logger.info(f"Multi-week mode: Processing {len(weeks_to_process)} week(s): {weeks_to_process}")
         else:
-            logger.info("")
-            logger.info("Auto-save disabled. Remember to click Save manually.")
+            # Single week mode (current week)
+            weeks_to_process = [baseline_week]
+            logger.info(f"Single week mode: Processing only Week {baseline_week}, {baseline_year}")
 
-        return summary
+        # Overall summary (aggregates results from all weeks)
+        overall_summary = FillSummary()
+        overall_summary.calculate_daily_totals(rows)
+
+        # Process each week
+        for week_index, target_week in enumerate(weeks_to_process, 1):
+            logger.info("")
+            logger.info("=" * 70)
+            logger.info(f"PROCESSING WEEK {week_index}/{len(weeks_to_process)}: Week {target_week}")
+            logger.info("=" * 70)
+
+            # Determine target year (assuming same year as baseline for simplicity)
+            # In a production system, you might want to handle year boundaries more carefully
+            target_year = baseline_year
+
+            try:
+                # Navigate to the target week if needed
+                if target_week != baseline_week or week_index > 1:
+                    # Get current week before navigation
+                    current_year, current_week = client.detect_baseline_week()
+
+                    client.navigate_to_week(
+                        target_year=target_year,
+                        target_week=target_week,
+                        baseline_year=current_year,
+                        baseline_week=current_week
+                    )
+
+                    # Wait for table to reload after navigation
+                    if not client.wait_for_table():
+                        raise Exception(f"Failed to find timesheet table for Week {target_week}")
+                else:
+                    logger.info(f"Already on Week {target_week}, {target_year}")
+
+                # Fill the timesheet for this week
+                week_summary = client.fill_timesheet(rows)
+
+                # Aggregate results into overall summary
+                overall_summary.total_projects += week_summary.total_projects
+                overall_summary.projects_found += week_summary.projects_found
+                overall_summary.projects_not_found += week_summary.projects_not_found
+                overall_summary.total_cells_filled += week_summary.total_cells_filled
+                overall_summary.total_cells_skipped += week_summary.total_cells_skipped
+                overall_summary.total_cells_failed += week_summary.total_cells_failed
+                overall_summary.missing_projects.extend(week_summary.missing_projects)
+                overall_summary.project_results.extend(week_summary.project_results)
+
+                # Auto-submit if requested (submit after each week)
+                if config.auto_submit:
+                    logger.info("")
+                    log_step(f"Auto-submitting Week {target_week}...", logger)
+                    if not client.click_save():
+                        # Fail-fast on submit failure
+                        raise Exception(f"Auto-submit failed for Week {target_week}")
+                    else:
+                        log_success(f"Week {target_week} saved successfully", logger)
+
+                logger.info("")
+                log_success(f"Week {target_week} completed successfully", logger)
+
+            except Exception as e:
+                # Fail-fast: stop immediately on any error
+                logger.info("")
+                log_error(f"Failed to process Week {target_week}: {e}", logger)
+                raise Exception(f"Operation failed at Week {target_week}: {e}")
+
+        # Final summary
+        if not config.auto_submit:
+            logger.info("")
+            logger.info("Auto-submit disabled. Remember to click Save manually for each week.")
+
+        return overall_summary

@@ -13,10 +13,12 @@ This tool automates the process of filling out timesheets in the TMS web applica
 - **CSV-based data input** - Define your timesheet data in simple CSV format
 - **Browser automation** - Uses Playwright for reliable web interaction
 - **Manual SSO login** - Pauses for you to complete authentication
+- **Multi-week support** - Fill multiple weeks automatically with a single CSV file
 - **Flexible options** - Dry-run, headless mode, auto-submit, and more
 - **Smart filling** - Skip empty fields, respect existing values
 - **Detailed logging** - Track what's being filled and identify issues
 - **Comprehensive summary** - See results with daily totals and error reporting
+- **Fail-fast operation** - Stops immediately on errors to prevent partial submissions
 
 ## Prerequisites
 
@@ -118,6 +120,19 @@ python -m timesheet_bot fill --csv data/week48.csv --no-overwrite
 python -m timesheet_bot fill --csv data/week48.csv --verbose
 ```
 
+**Fill multiple weeks** (same CSV applied to each week):
+
+```bash
+# Fill weeks 48, 49, and 50
+python -m timesheet_bot fill --csv data/week48.csv --weeks 48-50
+
+# Fill specific weeks (48, 49, 50, and 52)
+python -m timesheet_bot fill --csv data/week48.csv --weeks 48-50,52
+
+# Fill multiple weeks and auto-save each one
+python -m timesheet_bot fill --csv data/week48.csv --weeks 48-50 --auto-submit
+```
+
 ### Command-Line Options
 
 ```
@@ -125,8 +140,11 @@ Options:
   --csv PATH           Path to CSV file (required)
   --week NUM           Week number 1-53 (optional)
   --year YEAR          Year e.g., 2025 (optional)
+  --weeks RANGE        Week range to fill (e.g., "48-50,52" or "48,49,50")
+                       Fills multiple weeks with the same CSV data
   --headless           Run browser in headless mode
   --auto-submit        Automatically click Save button after filling
+                       (When used with --weeks, saves after each week)
   --no-overwrite       Skip fields that already have values
   --dry-run            Parse CSV and show plan without opening browser
   --verbose, -v        Enable verbose logging
@@ -137,14 +155,18 @@ Options:
 1. **Launch browser** - Opens Chromium using Playwright
 2. **Navigate to TMS** - Goes to the TMS URL
 3. **Wait for login** - Pauses and displays a prompt for you to complete SSO login manually
-4. **Detect table** - Waits for the timesheet table to load
-5. **Fill data** - For each CSV row:
-   - Finds the project row in the table (by project number)
-   - Fills hours into the correct weekday input fields
-   - Skips empty CSV cells
-   - Respects `--no-overwrite` flag
-6. **Optional save** - If `--auto-submit` is enabled, waits for and clicks the Save button (which appears after data entry)
-7. **Show summary** - Displays results including filled cells, errors, and daily totals
+4. **Detect baseline week** - Automatically detects the current week displayed in TMS
+5. **Process weeks** - For each week in the range (or single week if `--weeks` not specified):
+   - **Navigate to week** - Uses arrow buttons to navigate to the target week
+   - **Validate navigation** - Verifies the correct week is displayed (fail-fast if mismatch)
+   - **Wait for table** - Ensures the timesheet table is loaded
+   - **Fill data** - For each CSV row:
+     - Finds the project row in the table (by project number)
+     - Fills hours into the correct weekday input fields
+     - Skips empty CSV cells
+     - Respects `--no-overwrite` flag
+   - **Optional save** - If `--auto-submit` is enabled, clicks Save button after filling the week
+6. **Show summary** - Displays aggregate results including filled cells, errors, and daily totals
 
 ## Project Structure
 
@@ -260,7 +282,9 @@ mypy timesheet_bot/
 - **Manual login required** - The tool cannot automate SSO login (by design, for security)
 - **DOM structure dependency** - If TMS updates its HTML structure, selectors may need updates
 - **Project numbers must match exactly** - Including formatting, hyphens, etc.
-- **Single week at a time** - Each run fills one week's timesheet
+- **Week navigation constraints** - Maximum 10 weeks forward, 20 weeks backward from baseline
+- **Same CSV for all weeks** - Multi-week mode applies the same CSV data to each week
+- **Fail-fast operation** - Stops immediately on any error to prevent partial/incorrect submissions
 - **Browser required** - Even in headless mode, Chromium must be installed
 
 ## Troubleshooting
@@ -302,6 +326,27 @@ playwright install chromium
 - Use `--verbose` to see detailed logs
 - Check if fields already have values (use `--no-overwrite` to skip them)
 - Verify decimal format (use `.` not `,` for decimals)
+
+### Issue: Week navigation failing
+**Possible causes**:
+- Week offset exceeds limits (+10 forward, -20 backward)
+- Week navigation arrows not found in DOM
+- Week display text format changed
+
+**Solution**:
+- Check the week range is within allowed bounds
+- Verify you can manually navigate using the arrows in the UI
+- Update selectors in `timesheet_bot/selectors.py` if DOM structure changed
+- Use `--verbose` to see navigation details
+
+### Issue: Multi-week operation stops mid-way
+**Cause**: The tool uses fail-fast operation - it stops immediately on any error
+
+**Solution**:
+- Review the error message to identify which week failed
+- Check if the specific week exists and is accessible in TMS
+- Verify all projects exist in that week's view
+- Re-run with `--verbose` to get detailed error information
 
 ## Advanced Usage
 
@@ -366,7 +411,17 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### Version 1.1.0 (Current)
+### Version 2.0.0 (Current)
+- **NEW**: Multi-week support via `--weeks` argument (e.g., `--weeks 48-50,52`)
+- **NEW**: Automatic week navigation using DOM arrow buttons
+- **NEW**: Baseline week detection from TMS UI
+- **NEW**: Week navigation constraints (+10 forward, -20 backward)
+- **NEW**: Week verification after navigation (fail-fast on mismatch)
+- **CHANGED**: Auto-submit now saves after each week when using `--weeks`
+- **ENHANCED**: Comprehensive logging for multi-week operations
+- **ENHANCED**: Fail-fast operation stops immediately on any error
+
+### Version 1.1.0
 - **Fixed**: Page loading issue - now uses `domcontentloaded` strategy for faster navigation
 - **Changed**: Auto-submit now clicks Save button instead of Promark (saves draft, doesn't submit)
 - **Improved**: Save button detection with multiple fallback selectors

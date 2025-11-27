@@ -6,7 +6,7 @@ timeouts, and default settings.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 
 @dataclass
@@ -44,6 +44,7 @@ class Config:
     csv_path: Optional[str] = None
     week: Optional[int] = None
     year: Optional[int] = None
+    weeks: Optional[List[int]] = None
 
     def validate(self):
         """
@@ -63,6 +64,16 @@ class Config:
 
         if self.year is not None and not (2000 <= self.year <= 2100):
             raise ValueError(f"Year must be between 2000 and 2100, got: {self.year}")
+
+        # Validate weeks list if provided
+        if self.weeks is not None:
+            if not isinstance(self.weeks, list):
+                raise ValueError("weeks must be a list")
+            if len(self.weeks) == 0:
+                raise ValueError("weeks list cannot be empty")
+            for w in self.weeks:
+                if not (1 <= w <= 53):
+                    raise ValueError(f"Week number {w} out of range (must be 1-53)")
 
 
 # Default configuration instance

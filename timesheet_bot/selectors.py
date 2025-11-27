@@ -42,6 +42,18 @@ class TMSSelectors:
     # Alternative selector for Promark button
     PROMARK_BUTTON_ALT = 'a.btn-primary:has-text("Promark")'
 
+    # Week navigation elements
+    # Week display showing current week (e.g., "Week 48, 2025")
+    # Multiple possible selectors for week display
+    WEEK_DISPLAY = '.week-display, .week-selector, [class*="week"], h1, h2, h3'
+
+    # Week navigation arrows
+    # Left arrow (previous week)
+    WEEK_ARROW_LEFT = 'button:has([class*="arrow-left"]), button:has([class*="prev"]), a:has([class*="arrow-left"]), a:has([class*="prev"]), [class*="arrow-left"], [class*="prev"]'
+
+    # Right arrow (next week)
+    WEEK_ARROW_RIGHT = 'button:has([class*="arrow-right"]), button:has([class*="next"]), a:has([class*="arrow-right"]), a:has([class*="next"]), [class*="arrow-right"], [class*="next"]'
+
     # Weekday column names (as they appear in the DOM)
     WEEKDAYS = [
         'monday',
