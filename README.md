@@ -61,15 +61,17 @@ This tool automates the process of filling out timesheets in the TMS web applica
 The tool expects CSV files with the following format:
 
 ```csv
-project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,7.40,7.40,7.40,7.40,7.40,,
-8-26214-30-01,,,,,1.0,,
-8-26245-04-01,2.5,2.5,2.5,2.5,2.5,,
+project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,TD_Academy_Simulator_Transition,01 - Unspecified,7.40,7.40,7.40,7.40,7.40,,
+8-26214-30-01,PR_Engine Commissioning and configuratio,01 - Unspecified,,,,,0.30,,
+8-26245-04-01,CW_Administration,01 - Unspecified,0.15,0.15,0.15,0.15,0.15,,
 ```
 
 ### CSV Rules
 
 - **project_number**: Must match exactly the project number shown in TMS (e.g., `8-26214-10-42`)
+- **project_name**: Project name/description (informational, not used for matching)
+- **project_task**: Task description (informational, not used for matching)
 - **Weekday columns**: Hours as decimal numbers (e.g., `7.40`, `1.0`, `0.5`)
 - **Empty cells**: Leave blank to skip filling that day
 - **Header row**: Required and must match the format above

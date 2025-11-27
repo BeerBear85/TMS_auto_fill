@@ -1,5 +1,8 @@
-project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,7.40,7.40,7.40,7.40,7.40,,
-8-26214-30-01,,,,,0.30,,
-8-26245-04-01,0.15,0.15,0.15,0.15,0.15,,
-8-26245-04-03,0.30,0.30,0.30,0.30,0.30,,
+project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,TD_Academy_Simulator_Transition,01 - Unspecified,7.40,7.40,7.40,7.40,7.40,,
+8-26214-10-43,TD_Virtual_sim_nodes_on_testwalls,01 - Unspecified,,,,,,,
+8-26214-30-01,PR_Engine Commissioning and configuratio,01 - Unspecified,,,,,0.30,,
+8-26245-04-01,CW_Administration,01 - Unspecified,0.15,0.15,0.15,0.15,0.15,,
+8-26245-04-03,CW_Learn,01 - Unspecified,0.30,0.30,0.30,0.30,0.30,,
+8-26245-04-06,CW_Manage,01 - Unspecified,,,,,,,
+8-26245-04-40,CW_Basic Research & Technology,01 - Unspecified,,,,,,,

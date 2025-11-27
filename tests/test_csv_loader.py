@@ -16,10 +16,10 @@ class TestCSVLoader:
 
     def test_load_valid_csv(self, tmp_path):
         """Test loading a valid CSV file."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,7.40,7.40,7.40,7.40,7.40,,
-8-26214-30-01,,,,,1.0,,
-8-26245-04-01,2.5,2.5,2.5,2.5,2.5,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,TD_Academy_Simulator,01 - Unspecified,7.40,7.40,7.40,7.40,7.40,,
+8-26214-30-01,PR_Engine,01 - Unspecified,,,,,1.0,,
+8-26245-04-01,CW_Administration,01 - Unspecified,2.5,2.5,2.5,2.5,2.5,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -29,6 +29,8 @@ class TestCSVLoader:
 
         assert len(rows) == 3
         assert rows[0].project_number == "8-26214-10-42"
+        assert rows[0].project_name == "TD_Academy_Simulator"
+        assert rows[0].project_task == "01 - Unspecified"
         assert rows[0].monday == 7.40
         assert rows[0].saturday is None
         assert rows[1].project_number == "8-26214-30-01"
@@ -37,10 +39,10 @@ class TestCSVLoader:
 
     def test_load_csv_with_empty_rows(self, tmp_path):
         """Test that empty rows are skipped."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,7.40,,,,,
-,1.0,2.0,3.0,4.0,5.0,,
-8-26245-04-01,2.5,,,,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,Test Project,Task 1,7.40,,,,,
+,Project Name,Task,1.0,2.0,3.0,4.0,5.0,,
+8-26245-04-01,Another Project,Task 2,2.5,,,,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -55,8 +57,8 @@ class TestCSVLoader:
 
     def test_invalid_hours_value(self, tmp_path):
         """Test that invalid hours values raise an error."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,invalid,7.40,7.40,7.40,7.40,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,Test Project,Task,invalid,7.40,7.40,7.40,7.40,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -71,8 +73,8 @@ class TestCSVLoader:
 
     def test_negative_hours_value(self, tmp_path):
         """Test that negative hours values raise an error."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,-5.0,7.40,7.40,7.40,7.40,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,Test Project,Task,-5.0,7.40,7.40,7.40,7.40,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -108,7 +110,7 @@ class TestCSVLoader:
 
     def test_empty_csv(self, tmp_path):
         """Test that empty CSV raises an error."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -122,8 +124,8 @@ class TestCSVLoader:
 
     def test_decimal_values(self, tmp_path):
         """Test that decimal values are parsed correctly."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,7.5,8.25,6.75,7,7.40,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,Test Project,Task,7.5,8.25,6.75,7,7.40,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -138,8 +140,8 @@ class TestCSVLoader:
 
     def test_convenience_function(self, tmp_path):
         """Test the load_csv convenience function."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,7.40,7.40,7.40,7.40,7.40,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,Test Project,Task,7.40,7.40,7.40,7.40,7.40,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)
@@ -151,8 +153,8 @@ class TestCSVLoader:
 
     def test_whitespace_handling(self, tmp_path):
         """Test that whitespace in values is handled correctly."""
-        csv_content = """project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-  8-26214-10-42  , 7.40 ,  ,7.40,7.40,7.40,,"""
+        csv_content = """project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+  8-26214-10-42  , Test Project , Task Name , 7.40 ,  ,7.40,7.40,7.40,,"""
 
         csv_file = tmp_path / "test.csv"
         csv_file.write_text(csv_content)

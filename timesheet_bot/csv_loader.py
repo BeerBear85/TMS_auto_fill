@@ -22,13 +22,15 @@ class CSVLoader:
     Loads timesheet data from CSV files.
 
     Expected CSV format:
-        project_number,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-        8-26214-10-42,7.40,7.40,7.40,7.40,7.40,,
-        8-26214-30-01,,,,,1.0,,
+        project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+        8-26214-10-42,TD_Academy_Simulator,01 - Unspecified,7.40,7.40,7.40,7.40,7.40,,
+        8-26214-30-01,PR_Engine,01 - Unspecified,,,,,1.0,,
     """
 
     REQUIRED_HEADERS = [
         'project_number',
+        'project_name',
+        'project_task',
         'monday',
         'tuesday',
         'wednesday',
@@ -139,10 +141,18 @@ class CSVLoader:
         normalized_dict = {k.strip().lower(): v for k, v in row_dict.items()}
 
         # Get project number
-        project_number = normalized_dict.get('project_number', '').strip()
+        project_number = normalized_dict.get('project_number', '')
+        project_number = project_number.strip() if project_number else ''
         if not project_number:
             # Skip rows with empty project numbers (allows for blank lines)
             return None
+
+        # Get project name and task (optional fields)
+        project_name = normalized_dict.get('project_name', '')
+        project_name = project_name.strip() if project_name else ''
+
+        project_task = normalized_dict.get('project_task', '')
+        project_task = project_task.strip() if project_task else ''
 
         # Parse weekday values
         weekdays = {}
@@ -153,6 +163,8 @@ class CSVLoader:
 
         return TimesheetRow(
             project_number=project_number,
+            project_name=project_name,
+            project_task=project_task,
             **weekdays
         )
 

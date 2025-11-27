@@ -16,6 +16,8 @@ class TimesheetRow:
 
     Attributes:
         project_number: Full project number (e.g., "8-26214-10-42")
+        project_name: Project name/description (e.g., "TD_Academy_Simulator_Transition")
+        project_task: Task description (e.g., "01 - Unspecified")
         monday: Hours for Monday (None if empty)
         tuesday: Hours for Tuesday (None if empty)
         wednesday: Hours for Wednesday (None if empty)
@@ -25,6 +27,8 @@ class TimesheetRow:
         sunday: Hours for Sunday (None if empty)
     """
     project_number: str
+    project_name: str = ""
+    project_task: str = ""
     monday: Optional[float] = None
     tuesday: Optional[float] = None
     wednesday: Optional[float] = None
@@ -38,6 +42,8 @@ class TimesheetRow:
         if not self.project_number or not self.project_number.strip():
             raise ValueError("Project number cannot be empty")
         self.project_number = self.project_number.strip()
+        self.project_name = self.project_name.strip()
+        self.project_task = self.project_task.strip()
 
     def get_weekday_value(self, weekday: str) -> Optional[float]:
         """
