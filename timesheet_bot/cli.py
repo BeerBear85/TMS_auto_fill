@@ -153,7 +153,7 @@ def validate_args(args: argparse.Namespace) -> bool:
         return False
 
     # Parse and validate weeks argument if provided
-    if args.weeks:
+    if args.weeks is not None:
         try:
             parsed_weeks = parse_week_range(args.weeks)
             args.parsed_weeks = parsed_weeks
