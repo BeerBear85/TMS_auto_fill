@@ -10,7 +10,9 @@ This tool automates the process of filling out timesheets in the TMS web applica
 
 ### Features
 
+- **GUI and CLI modes** - Choose between graphical interface or command-line automation
 - **CSV-based data input** - Define your timesheet data in simple CSV format
+- **Visual CSV preview** - Inspect timesheet data in a table before running (GUI mode)
 - **Browser automation** - Uses Playwright for reliable web interaction
 - **Manual SSO login** - Pauses for you to complete authentication
 - **Multi-week support** - Fill multiple weeks automatically with a single CSV file
@@ -81,6 +83,51 @@ project_number,project_name,project_task,monday,tuesday,wednesday,thursday,frida
 See `data/week48.csv` for a complete example.
 
 ## Usage
+
+### GUI Mode
+
+The tool now includes a graphical user interface for easier operation:
+
+**Launch the GUI:**
+
+```bash
+python -m timesheet_bot.gui
+```
+
+Or use the installed command (after `pip install -e .`):
+
+```bash
+timesheet_gui
+```
+
+**Load CSV with GUI at startup:**
+
+```bash
+python -m timesheet_bot.gui data/week48.csv
+```
+
+**GUI Features:**
+- **Load CSV files** via button, drag-and-drop, or command-line argument
+- **Visual CSV preview** with scrollable table showing all project data
+- **Week input** accepts both formats: `48,49,50` or `48-50`
+- **Validate input** (dry run) checks CSV and week syntax without opening browser
+- **Run automation** opens browser in headful mode with progress dialog
+- **Error handling** displays clear error messages in pop-up dialogs
+- **No persistent settings** - clean slate every time
+
+**GUI Workflow:**
+1. Launch the GUI application
+2. Load a CSV file (button, drag-and-drop, or CLI argument)
+3. Inspect the data in the table view
+4. Enter weeks to fill (e.g., `48-50`)
+5. Click "Validate input" to check everything is correct
+6. Click "Run" to start the automation
+7. Complete SSO login when browser opens
+8. Wait for completion message
+
+### CLI Mode
+
+For automation and scripting, use the command-line interface:
 
 ### Basic Commands
 
@@ -184,11 +231,13 @@ TMS_auto_fill/
 │   ├── __init__.py                         # Package initialization
 │   ├── __main__.py                         # Module entry point
 │   ├── cli.py                              # Command-line interface
+│   ├── gui.py                              # Graphical user interface (PySide6)
 │   ├── config.py                           # Configuration management
 │   ├── models.py                           # Data models
 │   ├── csv_loader.py                       # CSV parsing
 │   ├── playwright_client.py                # Browser automation
 │   ├── selectors.py                        # DOM selectors
+│   ├── week_utils.py                       # Week parsing utilities
 │   └── logging_utils.py                    # Logging utilities
 │
 ├── tests/
@@ -411,7 +460,18 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### Version 2.0.0 (Current)
+### Version 2.1.0 (Current)
+- **NEW**: PySide6 GUI for visual timesheet management
+- **NEW**: Drag-and-drop CSV loading in GUI
+- **NEW**: Visual CSV preview with scrollable table
+- **NEW**: Validate input (dry run) button in GUI
+- **NEW**: Progress dialog during automation runs
+- **NEW**: Error handling with modal dialogs
+- **ENHANCED**: GUI supports all week input formats (ranges and comma-separated)
+- **ENHANCED**: CLI argument support for GUI (`timesheet_gui data/week48.csv`)
+- **ENHANCED**: Simple command alias: `timesheet_gui` (after installation)
+
+### Version 2.0.0
 - **NEW**: Multi-week support via `--weeks` argument (e.g., `--weeks 48-50,52`)
 - **NEW**: Automatic week navigation using DOM arrow buttons
 - **NEW**: Baseline week detection from TMS UI
