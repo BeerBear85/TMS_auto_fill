@@ -12,8 +12,9 @@ from pathlib import Path
 from .config import Config
 from .csv_loader import load_csv, CSVLoadError
 from .playwright_client import run_fill_operation
-from .logging_utils import setup_logging, get_logger, log_section, log_error
+from .logging_utils import setup_logging, get_logger, log_section, log_error, log_success
 from .week_utils import parse_week_range, WeekRangeParseError
+from .network_utils import check_tms_connectivity, is_vpn_proxy_error, format_connectivity_error
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -228,8 +229,34 @@ def cmd_fill(args: argparse.Namespace) -> int:
     # Dry run mode - stop here
     if config.dry_run:
         logger.info("")
+        log_section("Checking Network Connectivity", logger)
+
+        # Perform connectivity check
+        success, error_msg = check_tms_connectivity(
+            config.tms_url,
+            timeout=config.navigation_timeout // 1000  # Convert ms to seconds
+        )
+
+        if not success:
+            # Connectivity check failed
+            logger.info("")
+            is_vpn_issue = is_vpn_proxy_error(error_msg)
+            formatted_error = format_connectivity_error(
+                config.tms_url,
+                error_msg,
+                is_vpn_issue
+            )
+            log_error(formatted_error, logger)
+            return 1
+
+        # Connectivity check passed
+        log_success(f"Successfully connected to {config.tms_url}", logger)
+
+        logger.info("")
         log_section("Dry Run Complete", logger)
-        logger.info("No browser operations performed.")
+        logger.info("✓ CSV validation: PASSED")
+        logger.info("✓ Network connectivity: PASSED")
+        logger.info("")
         logger.info("Run without --dry-run to execute the fill operation.")
         return 0
 

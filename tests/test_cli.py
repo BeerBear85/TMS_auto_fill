@@ -426,3 +426,153 @@ class TestWeeksArgumentIntegration:
         config.validate()
         assert config.weeks == [48, 49, 50]
         assert config.no_overwrite is True
+
+
+class TestDryRunNetworkCheck:
+    """Tests for dry-run network connectivity check."""
+
+    @pytest.fixture
+    def temp_csv(self, tmp_path):
+        """Create a temporary CSV file for testing."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text(
+            "project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday\n"
+            "8-12345-10-01,Test Project,Task 1,7.5,7.5,7.5,7.5,7.5,,\n"
+        )
+        return str(csv_file)
+
+    @pytest.fixture
+    def mock_successful_connectivity(self, monkeypatch):
+        """Mock successful connectivity check."""
+        def mock_check(url, timeout):
+            return (True, "")
+        monkeypatch.setattr(
+            'timesheet_bot.cli.check_tms_connectivity',
+            mock_check
+        )
+
+    @pytest.fixture
+    def mock_failed_connectivity_dns(self, monkeypatch):
+        """Mock failed connectivity check (DNS failure)."""
+        def mock_check(url, timeout):
+            return (False, "DNS resolution failed: getaddrinfo failed")
+        monkeypatch.setattr(
+            'timesheet_bot.cli.check_tms_connectivity',
+            mock_check
+        )
+
+    @pytest.fixture
+    def mock_failed_connectivity_timeout(self, monkeypatch):
+        """Mock failed connectivity check (timeout)."""
+        def mock_check(url, timeout):
+            return (False, f"Connection timeout after {timeout}s")
+        monkeypatch.setattr(
+            'timesheet_bot.cli.check_tms_connectivity',
+            mock_check
+        )
+
+    @pytest.fixture
+    def mock_failed_connectivity_server_error(self, monkeypatch):
+        """Mock failed connectivity check (server error)."""
+        def mock_check(url, timeout):
+            return (False, "HTTP 500: Internal Server Error")
+        monkeypatch.setattr(
+            'timesheet_bot.cli.check_tms_connectivity',
+            mock_check
+        )
+
+    def test_dry_run_with_network_check_success(self, temp_csv, mock_successful_connectivity):
+        """Test dry-run succeeds when network connectivity passes."""
+        parser = create_parser()
+        args = parser.parse_args([
+            'fill',
+            '--csv', temp_csv,
+            '--dry-run'
+        ])
+
+        validate_args(args)
+        result = cmd_fill(args)
+
+        assert result == 0  # Success exit code
+
+    def test_dry_run_with_network_check_failure_dns(self, temp_csv, mock_failed_connectivity_dns, caplog):
+        """Test dry-run fails when network connectivity fails (DNS)."""
+        parser = create_parser()
+        args = parser.parse_args([
+            'fill',
+            '--csv', temp_csv,
+            '--dry-run'
+        ])
+
+        validate_args(args)
+        result = cmd_fill(args)
+
+        assert result == 1  # Failure exit code
+        # Should contain VPN/proxy hints for DNS failures in logs
+        log_output = caplog.text
+        assert "VPN" in log_output or "Proxy" in log_output or "Zscaler" in log_output
+
+    def test_dry_run_with_network_check_failure_timeout(self, temp_csv, mock_failed_connectivity_timeout):
+        """Test dry-run fails when network connectivity times out."""
+        parser = create_parser()
+        args = parser.parse_args([
+            'fill',
+            '--csv', temp_csv,
+            '--dry-run'
+        ])
+
+        validate_args(args)
+        result = cmd_fill(args)
+
+        assert result == 1  # Failure exit code
+
+    def test_dry_run_with_network_check_failure_server_error(self, temp_csv, mock_failed_connectivity_server_error):
+        """Test dry-run fails when server returns error."""
+        parser = create_parser()
+        args = parser.parse_args([
+            'fill',
+            '--csv', temp_csv,
+            '--dry-run'
+        ])
+
+        validate_args(args)
+        result = cmd_fill(args)
+
+        assert result == 1  # Failure exit code
+
+    def test_dry_run_network_check_not_called_without_dry_run(self, temp_csv, monkeypatch):
+        """Test network check is not called when not in dry-run mode."""
+        check_called = False
+
+        def mock_check(url, timeout):
+            nonlocal check_called
+            check_called = True
+            return (True, "")
+
+        monkeypatch.setattr(
+            'timesheet_bot.cli.check_tms_connectivity',
+            mock_check
+        )
+
+        # Mock run_fill_operation to avoid actually running automation
+        def mock_run(config, rows):
+            from timesheet_bot.models import FillSummary
+            return FillSummary()
+
+        monkeypatch.setattr(
+            'timesheet_bot.cli.run_fill_operation',
+            mock_run
+        )
+
+        parser = create_parser()
+        args = parser.parse_args([
+            'fill',
+            '--csv', temp_csv
+            # Note: no --dry-run flag
+        ])
+
+        validate_args(args)
+        cmd_fill(args)
+
+        # Network check should NOT have been called in non-dry-run mode
+        assert check_called is False

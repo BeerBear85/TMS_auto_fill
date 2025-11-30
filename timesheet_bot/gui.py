@@ -33,6 +33,7 @@ from .models import TimesheetRow, FillSummary
 from .week_utils import parse_week_range, WeekRangeParseError
 from .config import Config
 from .playwright_client import run_fill_operation
+from .network_utils import check_tms_connectivity, is_vpn_proxy_error
 
 
 class TimesheetTableModel(QAbstractTableModel):
@@ -327,12 +328,54 @@ class TimesheetGUI(QMainWindow):
         try:
             weeks = parse_week_range(week_text)
 
-            # Show validation success
+            # Check network connectivity
+            success, error_msg = check_tms_connectivity(
+                Config().tms_url,  # Use default TMS URL from config
+                timeout=10
+            )
+
+            if not success:
+                # Connectivity check failed
+                is_vpn_issue = is_vpn_proxy_error(error_msg)
+
+                if is_vpn_issue:
+                    message = (
+                        f"Network Connectivity Check Failed\n\n"
+                        f"{error_msg}\n\n"
+                        f"This error is often caused by:\n"
+                        f"• VPN/Proxy not connected (e.g., Zscaler, Cisco AnyConnect)\n"
+                        f"• VPN/Proxy not authenticated\n"
+                        f"• Network connectivity issues\n"
+                        f"• Firewall blocking the connection\n\n"
+                        f"Please ensure:\n"
+                        f"1. Your VPN/Proxy (e.g., Zscaler) is turned ON and authenticated\n"
+                        f"2. You can access the TMS website in your browser\n"
+                        f"3. The URL is reachable: {Config().tms_url}"
+                    )
+                else:
+                    message = (
+                        f"Network Connectivity Check Failed\n\n"
+                        f"{error_msg}\n\n"
+                        f"Please check:\n"
+                        f"1. Your internet connection is working\n"
+                        f"2. The TMS server is accessible\n"
+                        f"3. The URL is reachable: {Config().tms_url}"
+                    )
+
+                QMessageBox.critical(
+                    self,
+                    "Network Error",
+                    message
+                )
+                return  # Don't show success dialog
+
+            # Show validation success with connectivity status
             QMessageBox.information(
                 self,
                 "Validation Successful",
                 f"CSV: {len(self.rows)} project(s) loaded\n"
-                f"Weeks: {weeks}\n\n"
+                f"Weeks: {weeks}\n"
+                f"Network: Connected to TMS ✓\n\n"
                 f"Input is valid and ready to run."
             )
 
