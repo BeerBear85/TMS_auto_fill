@@ -460,7 +460,13 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### Version 2.1.0 (Current)
+### Version 2.1.1 (Current)
+- **FIXED**: Unicode encoding error on Windows (→, ✓, ✗ symbols now display correctly)
+- **FIXED**: Week navigation arrow detection - now properly detects FontAwesome icon elements
+- **IMPROVED**: Better error messages for week navigation failures
+- **IMPROVED**: More robust arrow selector matching for different DOM structures
+
+### Version 2.1.0
 - **NEW**: PySide6 GUI for visual timesheet management
 - **NEW**: Drag-and-drop CSV loading in GUI
 - **NEW**: Visual CSV preview with scrollable table

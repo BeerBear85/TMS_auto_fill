@@ -63,7 +63,12 @@ def setup_logging(verbose: bool = False, use_colors: bool = True) -> logging.Log
     # Remove existing handlers to avoid duplicates
     logger.handlers.clear()
 
-    # Create console handler
+    # Create console handler with UTF-8 encoding to support Unicode symbols
+    # Reconfigure stdout to use UTF-8 encoding on Windows
+    if sys.stdout.encoding != 'utf-8':
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
 

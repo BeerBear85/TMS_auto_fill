@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timesheet-bot"
-version = "1.0.0"
+version = "2.1.1"
 description = "Automated timesheet filling for TMS (Timesheet Management System)"
 readme = "README.md"
 requires-python = ">=3.8"

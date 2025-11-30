@@ -131,8 +131,10 @@ class TMSClient:
         """
         Wait for the user to manually log in.
 
-        This method displays a prompt and waits for the user to press ENTER
-        after completing the login process.
+        For GUI mode (headless=False): Automatically detects login completion by polling
+        for the timesheet table, with fallback to manual confirmation if needed.
+
+        For CLI mode: Displays a prompt and waits for the user to press ENTER.
         """
         self.logger.info("")
         self.logger.info("=" * 70)
@@ -142,12 +144,49 @@ class TMSClient:
         self.logger.info("  Please complete the SSO login in the browser window.")
         self.logger.info("  Navigate to the week view where you see the timesheet table.")
         self.logger.info("")
-        self.logger.info("  When ready, press ENTER to continue...")
-        self.logger.info("=" * 70)
 
-        input()
+        # If running in GUI mode (headless=False), use automatic detection
+        if not self.config.headless:
+            self.logger.info("  Waiting for login to complete (monitoring for timesheet table)...")
+            self.logger.info("=" * 70)
 
-        log_step("Continuing after manual login...", self.logger)
+            # Poll for the timesheet table with timeout
+            poll_interval = 2000  # Check every 2 seconds
+            max_wait_time = 120000  # 120 seconds (2 minutes)
+            elapsed = 0
+
+            while elapsed < max_wait_time:
+                try:
+                    # Try to find the timesheet table
+                    table = self.page.locator(TMSSelectors.TABLE)
+                    table.wait_for(state='visible', timeout=poll_interval)
+
+                    # If we get here, the table is visible - login complete!
+                    log_success("Login detected! Timesheet table is now visible.", self.logger)
+                    log_step("Continuing after manual login...", self.logger)
+                    return
+
+                except PlaywrightTimeoutError:
+                    # Table not found yet, continue polling
+                    elapsed += poll_interval
+                    if elapsed % 10000 == 0:  # Log every 10 seconds
+                        self.logger.debug(f"Still waiting for login... ({elapsed // 1000}s elapsed)")
+                    continue
+
+            # Timeout reached - table not detected automatically
+            log_warning("Could not automatically detect login completion.", self.logger)
+            self.logger.info("  If you have already logged in, the automation will continue shortly.")
+            self.logger.info("  Otherwise, please complete the login now.")
+
+            # Give a bit more time for slow loaders
+            self.page.wait_for_timeout(5000)
+
+        else:
+            # CLI mode - use traditional input() method
+            self.logger.info("  When ready, press ENTER to continue...")
+            self.logger.info("=" * 70)
+            input()
+            log_step("Continuing after manual login...", self.logger)
 
     def wait_for_table(self, timeout: Optional[int] = None) -> bool:
         """
@@ -188,17 +227,43 @@ class TMSClient:
         log_step("Detecting baseline week from DOM...", self.logger)
 
         try:
-            # Try to find the week display element
-            # We'll search through various possible selectors
-            week_text = None
+            import re
 
-            # Try to get text from page that contains week information
-            # Look for patterns like "Week 48, 2025" in the page
+            # Strategy 1: Try to find the week icon structure (time.icon with span.date)
+            try:
+                # Look for time elements with class "icon" that contain week information
+                time_elements = self.page.locator('time.icon').all()
+
+                for time_elem in time_elements:
+                    # Check if this time element has the week structure
+                    # (span.month containing "Week" and span.date containing the number)
+                    month_span_text = time_elem.locator('span.month').text_content()
+
+                    if month_span_text and 'week' in month_span_text.lower():
+                        # Found the week display! Extract week number and year
+                        week_num_text = time_elem.locator('span.date').text_content()
+                        date_range_text = time_elem.locator('em').text_content()
+
+                        # Extract week number (should be just digits, possibly with whitespace)
+                        week_match = re.search(r'(\d+)', week_num_text)
+                        if week_match:
+                            week_num = int(week_match.group(1))
+
+                            # Extract year from date range (e.g., "Nov 24 - Nov 30, 2025")
+                            year_match = re.search(r'(\d{4})', date_range_text)
+                            if year_match:
+                                year = int(year_match.group(1))
+                                self.logger.info(f"Detected baseline week: Week {week_num}, {year}")
+                                return (year, week_num)
+
+                self.logger.debug("Week icon structure not found, trying fallback...")
+
+            except Exception as e:
+                self.logger.debug(f"Week icon detection failed: {e}, trying fallback...")
+
+            # Strategy 2: Fallback to text-based regex search (original approach)
             page_text = self.page.text_content('body')
-
             if page_text:
-                # Try to parse week info from the page text
-                import re
                 patterns = [
                     r'[Ww]eek\s*(\d+)[,\s]+(\d{4})',
                     r'[Ww](\d+)\s+(\d{4})',
@@ -213,10 +278,11 @@ class TMSClient:
                         self.logger.info(f"Detected baseline week: Week {week_num}, {year}")
                         return (year, week_num)
 
-            # If we couldn't find it in page text, raise an error
+            # If we couldn't find it, raise an error with helpful message
             raise Exception(
                 "Could not detect baseline week from DOM. "
-                "Please ensure the week selector is visible on the page."
+                "Please ensure the week selector is visible on the page. "
+                "The page may still be loading or the structure may have changed."
             )
 
         except Exception as e:
@@ -309,14 +375,17 @@ class TMSClient:
 
         try:
             for i in range(clicks):
-                # Find the arrow button
-                arrow_button = self.page.locator(arrow_selector).first
+                # Wait a bit for any dynamic content to load
+                self.page.wait_for_timeout(1000)
 
-                if arrow_button.count() == 0:
+                # Find the arrow button
+                arrow_locator = self.page.locator(arrow_selector)
+
+                if arrow_locator.count() == 0:
                     raise Exception(f"Week navigation arrow ({direction}) not found")
 
-                # Click the arrow
-                arrow_button.click()
+                # Click the first arrow button
+                arrow_locator.first.click()
 
                 # Wait for the page to update
                 self.page.wait_for_timeout(500)  # 500ms wait between clicks

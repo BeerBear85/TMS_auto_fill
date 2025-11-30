@@ -462,7 +462,9 @@ class TimesheetGUI(QMainWindow):
 
         # Show progress dialog
         self.progress_dialog = QProgressDialog(
-            "Running automation...\n\nPlease complete login in the browser window.",
+            "Running automation...\n\n"
+            "Please complete login in the browser window.\n"
+            "The automation will continue automatically once you're logged in.",
             None,  # No cancel button (fail-fast behavior)
             0,
             0,  # Indeterminate progress
