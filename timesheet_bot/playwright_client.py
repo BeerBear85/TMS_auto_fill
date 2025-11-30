@@ -99,7 +99,32 @@ class TMSClient:
             )
             self.logger.debug("Navigation successful")
         except Exception as e:
-            log_error(f"Failed to navigate: {e}", self.logger)
+            error_str = str(e)
+
+            # Check for network-related errors
+            if any(err in error_str for err in ['ERR_NAME_NOT_RESOLVED', 'ERR_CONNECTION', 'ERR_TUNNEL_CONNECTION_FAILED', 'net::']):
+                log_error(f"Failed to navigate: {e}", self.logger)
+                self.logger.error("")
+                self.logger.error("=" * 70)
+                self.logger.error("  NETWORK CONNECTION ERROR")
+                self.logger.error("=" * 70)
+                self.logger.error("")
+                self.logger.error("  This error is often caused by:")
+                self.logger.error("  - VPN/Proxy not connected (e.g., Zscaler, Cisco AnyConnect)")
+                self.logger.error("  - VPN/Proxy not authenticated")
+                self.logger.error("  - Network connectivity issues")
+                self.logger.error("  - Firewall blocking the connection")
+                self.logger.error("")
+                self.logger.error("  Please ensure:")
+                self.logger.error("  1. Your VPN/Proxy (e.g., Zscaler) is turned ON and authenticated")
+                self.logger.error("  2. You can access the TMS website in your browser")
+                self.logger.error(f"  3. The URL is correct: {self.config.tms_url}")
+                self.logger.error("")
+                self.logger.error("=" * 70)
+                self.logger.error("")
+            else:
+                log_error(f"Failed to navigate: {e}", self.logger)
+
             raise
 
     def wait_for_manual_login(self):

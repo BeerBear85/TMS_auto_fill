@@ -500,11 +500,30 @@ class TimesheetGUI(QMainWindow):
         self.validate_button.setEnabled(True)
         self.run_button.setEnabled(True)
 
+        # Check for network-related errors and provide helpful hints
+        network_error_keywords = ['ERR_NAME_NOT_RESOLVED', 'ERR_CONNECTION', 'ERR_TUNNEL_CONNECTION_FAILED', 'net::']
+        is_network_error = any(keyword in error_message for keyword in network_error_keywords)
+
+        if is_network_error:
+            message = f"Network Connection Error\n\n"
+            message += f"{error_message}\n\n"
+            message += f"This error is often caused by:\n"
+            message += f"• VPN/Proxy not connected (e.g., Zscaler, Cisco AnyConnect)\n"
+            message += f"• VPN/Proxy not authenticated\n"
+            message += f"• Network connectivity issues\n"
+            message += f"• Firewall blocking the connection\n\n"
+            message += f"Please ensure:\n"
+            message += f"1. Your VPN/Proxy (e.g., Zscaler) is turned ON and authenticated\n"
+            message += f"2. You can access the TMS website in your browser\n"
+            message += f"3. The URL is reachable"
+        else:
+            message = f"The automation failed with an error:\n\n{error_message}"
+
         # Show error dialog
         QMessageBox.critical(
             self,
             "Automation Failed",
-            f"The automation failed with an error:\n\n{error_message}"
+            message
         )
 
     def dragEnterEvent(self, event: QDragEnterEvent):
