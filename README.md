@@ -10,6 +10,7 @@ This tool automates the process of filling out timesheets in the TMS web applica
 
 ### Features
 
+- **CSV template generation** - Extract project list directly from TMS to get started quickly
 - **GUI and CLI modes** - Choose between graphical interface or command-line automation
 - **CSV-based data input** - Define your timesheet data in simple CSV format
 - **Visual CSV preview** - Inspect timesheet data in a table before running (GUI mode)
@@ -27,7 +28,29 @@ This tool automates the process of filling out timesheets in the TMS web applica
 - Python 3.8 or higher
 - Access to the TMS system (https://tms.md-man.biz/home)
 
-## Installation
+## Quick Setup (Windows)
+
+For Windows users, an automated setup script is provided to quickly set up the environment:
+
+```powershell
+.\initial_setup.ps1
+```
+
+This script will:
+1. Check for Python 3.8+ installation
+2. Create a virtual environment
+3. Install all dependencies
+4. Install Playwright Chromium browser
+
+After the script completes, activate the virtual environment and you're ready to go:
+
+```powershell
+venv\Scripts\activate
+```
+
+## Manual Installation
+
+If you prefer manual setup or are on Linux/Mac, follow these steps:
 
 1. **Clone or download this repository:**
 
@@ -59,6 +82,57 @@ This tool automates the process of filling out timesheets in the TMS web applica
    ```bash
    playwright install chromium
    ```
+
+## Getting Started
+
+### Generate a CSV Template from TMS
+
+The easiest way to get started is to generate a CSV template directly from your TMS timesheet page:
+
+```bash
+python -m timesheet_bot fetch_input_csv
+```
+
+**This command will:**
+1. Open your browser and navigate to TMS
+2. Wait for you to log in and navigate to your desired week
+3. Press ENTER when ready
+4. Extract all visible projects from the table
+5. Generate a CSV file (`fetched_timesheet.csv`) with all project numbers and zero-filled hours
+
+**Options:**
+
+```bash
+# Save to a specific file
+python -m timesheet_bot fetch_input_csv --output my_projects.csv
+
+# Overwrite existing file
+python -m timesheet_bot fetch_input_csv --force
+
+# Run in headless mode
+python -m timesheet_bot fetch_input_csv --headless
+
+# Verbose logging to see extraction details
+python -m timesheet_bot fetch_input_csv --verbose
+```
+
+**Generated CSV format:**
+```csv
+project_number,project_text,task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,TD_Academy_Simulator_Transition,01 - Unspecified,0,0,0,0,0,0,0
+8-26214-30-01,PR_Engine Commissioning,01 - Unspecified,0,0,0,0,0,0,0
+```
+
+**After generation:**
+1. Open the generated CSV file
+2. Fill in your actual hours for each day (replace the `0` values)
+3. Use the `fill` command to automatically fill your timesheet
+
+**Note:** The generated CSV uses `project_text` and `task` column names. If you want to use it with the existing CSV loader, rename these columns to `project_name` and `project_task` respectively, or simply keep them as-is since they're informational only.
+
+### Manual CSV Creation
+
+Alternatively, you can create your CSV file manually following the format below.
 
 ## CSV Format
 
@@ -127,9 +201,13 @@ python -m timesheet_bot.gui data/week48.csv
 
 ### CLI Mode
 
-For automation and scripting, use the command-line interface:
+For automation and scripting, use the command-line interface.
 
-### Basic Commands
+The tool provides two main commands:
+- **`fetch_input_csv`** - Generate a CSV template from TMS (see Getting Started section above)
+- **`fill`** - Fill timesheet from CSV data (see below)
+
+### Basic Fill Commands
 
 **Dry run** (validate CSV without opening browser):
 
@@ -199,6 +277,24 @@ Options:
 
 ## How It Works
 
+### CSV Template Generation (`fetch_input_csv`)
+
+1. **Launch browser** - Opens Chromium using Playwright
+2. **Navigate to TMS** - Goes to the TMS URL
+3. **Wait for login** - Pauses for you to complete SSO login and navigate to desired week
+4. **Extract table data** - Reads all visible project rows from the timesheet table:
+   - Extracts project numbers from the Project column
+   - Intelligently detects project text using column names or heuristics
+   - Identifies tasks using pattern matching (e.g., "01 - Unspecified")
+   - Handles various table structures and column naming conventions
+5. **Generate CSV** - Creates CSV file with:
+   - All extracted project information
+   - Zero-filled weekday columns (ready for editing)
+   - Proper UTF-8 encoding
+6. **Save file** - Writes to specified output path (default: `fetched_timesheet.csv`)
+
+### Timesheet Filling (`fill`)
+
 1. **Launch browser** - Opens Chromium using Playwright
 2. **Navigate to TMS** - Goes to the TMS URL
 3. **Wait for login** - Pauses and displays a prompt for you to complete SSO login manually
@@ -234,17 +330,24 @@ TMS_auto_fill/
 │   ├── gui.py                              # Graphical user interface (PySide6)
 │   ├── config.py                           # Configuration management
 │   ├── models.py                           # Data models
-│   ├── csv_loader.py                       # CSV parsing
+│   ├── csv_loader.py                       # CSV parsing and loading
+│   ├── csv_generator.py                    # CSV template generation
 │   ├── playwright_client.py                # Browser automation
 │   ├── selectors.py                        # DOM selectors
 │   ├── week_utils.py                       # Week parsing utilities
+│   ├── network_utils.py                    # Network connectivity checks
 │   └── logging_utils.py                    # Logging utilities
 │
 ├── tests/
+│   ├── test_cli.py                         # CLI argument tests
 │   ├── test_csv_loader.py                  # CSV loader tests
-│   └── test_dom_mapping.py                 # DOM interaction tests
+│   ├── test_csv_generator.py               # CSV generator tests
+│   ├── test_dom_mapping.py                 # DOM interaction tests
+│   ├── test_week_utils.py                  # Week parsing tests
+│   └── test_network_utils.py               # Network utilities tests
 │
 ├── pyproject.toml                          # Project configuration
+├── initial_setup.ps1                       # Windows setup script
 ├── .gitignore                              # Git ignore rules
 ├── .env.example                            # Environment template
 ├── README.md                               # This file
@@ -337,6 +440,19 @@ mypy timesheet_bot/
 - **Browser required** - Even in headless mode, Chromium must be installed
 
 ## Troubleshooting
+
+### Issue: fetch_input_csv extracts wrong project text
+**Possible causes**:
+- Table structure doesn't match expected column names
+- Project text is in an unexpected cell or format
+
+**Solution**:
+- Run with `--verbose` to see which extraction strategy was used
+- Check the generated CSV and verify project_text values
+- The tool uses intelligent fallback strategies:
+  - Strategy 1: Looks for columns with names like ProjectText, ProjectName, Description
+  - Strategy 2: Identifies cells with underscores or length > 10 characters
+- If extraction fails consistently, inspect the HTML structure in TMS
 
 ### Issue: CSV file not found
 **Solution**: Verify the path is correct and the file exists. Use absolute paths if needed.
@@ -460,7 +576,18 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### Version 2.1.1 (Current)
+### Version 2.2.0 (Current)
+- **NEW**: `fetch_input_csv` command to generate CSV templates directly from TMS
+- **NEW**: Intelligent table extraction with fallback strategies for project text and tasks
+- **NEW**: Automatic detection of project names and task descriptions from table cells
+- **NEW**: Pattern-based task extraction (e.g., "01 - Unspecified", "65 - Absence")
+- **NEW**: CSV template generation with zero-filled weekday columns
+- **NEW**: Comprehensive test suite for CSV generation (137 tests total)
+- **ENHANCED**: Project extraction now tries multiple column name variations
+- **ENHANCED**: Fallback strategy looks for project text by heuristics (length, underscores)
+- **IMPROVED**: Better error messages for CSV generation failures
+
+### Version 2.1.1
 - **FIXED**: Unicode encoding error on Windows (→, ✓, ✗ symbols now display correctly)
 - **FIXED**: Week navigation arrow detection - now properly detects FontAwesome icon elements
 - **IMPROVED**: Better error messages for week navigation failures
