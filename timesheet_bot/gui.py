@@ -617,7 +617,7 @@ class TimesheetGUI(QMainWindow):
             weeks=weeks,
             year=year,
             headless=False,  # Always headful for GUI
-            auto_submit=False,  # User must manually submit
+            auto_submit=True,   # GUI always saves after filling (BUG FIX: was False, causing data loss)
             no_overwrite=False,
             dry_run=False,
             verbose=False

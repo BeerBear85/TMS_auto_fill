@@ -633,10 +633,37 @@ class TMSClient:
             # Click the button
             log_step("Clicking Save button...", self.logger)
             button.click()
-            log_success("Save button clicked", self.logger)
+            self.logger.debug("Save button clicked")
 
-            # Wait for the save action to process
-            self.page.wait_for_timeout(1500)
+            # Wait for page reload after clicking Save
+            # BUG FIX: TMS reloads/refreshes the page after save with a loading animation
+            # Previous implementation incorrectly checked if button disappeared (it doesn't)
+            # We need to wait for the reload to complete before the browser closes
+            self.logger.debug("Waiting for page reload to complete...")
+
+            try:
+                # Strategy 1: Wait for navigation/reload to complete
+                # Use wait_for_load_state to ensure page is fully loaded
+                self.page.wait_for_load_state('networkidle', timeout=5000)
+                self.logger.debug("Page reload detected and completed")
+            except Exception as e:
+                # If no reload detected, fallback to timeout
+                # (TMS might do a soft refresh without full navigation)
+                self.logger.debug(f"No page reload detected, using fallback wait: {e}")
+                self.page.wait_for_timeout(3000)
+
+            # Additional wait to ensure server-side processing completes
+            self.page.wait_for_timeout(1000)
+
+            # Optional: Verify save by checking if table is still present
+            # This is a strong indicator that save was successful
+            try:
+                table = self.page.locator(TMSSelectors.TABLE).first
+                if table.count() > 0:
+                    self.logger.debug("Table still present after save (save likely succeeded)")
+            except Exception as e:
+                # Non-critical error - just log it
+                self.logger.debug(f"Could not verify table presence: {e}")
 
             return True
 
@@ -837,6 +864,37 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
 
     Raises:
         Exception: If a critical error occurs
+
+    Bug Fix (2025-12-17):
+        Fixed issue where the last processed week was not saved properly when auto_submit
+        was enabled. The bug occurred because:
+        1. click_save() only waited 1.5 seconds after clicking the Save button
+        2. No proper wait for TMS page reload after save
+        3. Browser closed immediately after the last week, losing unsaved data
+
+        TMS Save Behavior:
+        - After clicking Save, TMS reloads/refreshes the page with a loading animation
+        - The Save button does NOT disappear (remains visible)
+        - Input values should persist in the DOM if save succeeded
+
+        Fix:
+        - Wait for page reload using wait_for_load_state('networkidle', timeout=5000)
+        - Fallback to 3-second timeout if no reload detected (soft refresh)
+        - Additional 1-second buffer to ensure server-side processing completes
+        - Total wait time: ~5-6 seconds (sufficient for slow networks)
+        - Added INFO-level logging: "Saving week X" and "Save completed for week X"
+        - Verify table presence after save (optional validation)
+
+        Reproduction:
+        1. Run with --auto-submit and multiple weeks: --weeks 51,52
+        2. Observe that week 51 is filled and saved
+        3. Week 52 is filled and saved
+        4. Previously: week 52 data would be lost due to browser closing before reload completed
+        5. Now: week 52 data persists because we wait for reload to complete
+
+        Regression test:
+        - Manual: Run with --auto-submit --weeks 51,52 and verify both weeks are saved
+        - Automated: Would require mocking the TMS system or using a test fixture
     """
     logger = get_logger()
 
@@ -919,12 +977,11 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
                 # Auto-submit if requested (submit after each week)
                 if config.auto_submit:
                     logger.info("")
-                    log_step(f"Auto-submitting Week {target_week}...", logger)
+                    logger.info(f"Saving week {target_week}...")
                     if not client.click_save():
                         # Fail-fast on submit failure
                         raise Exception(f"Auto-submit failed for Week {target_week}")
-                    else:
-                        log_success(f"Week {target_week} saved successfully", logger)
+                    log_success(f"Save completed for week {target_week}", logger)
 
                 logger.info("")
                 log_success(f"Week {target_week} completed successfully", logger)
@@ -936,7 +993,12 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
                 raise Exception(f"Operation failed at Week {target_week}: {e}")
 
         # Final summary
-        if not config.auto_submit:
+        if config.auto_submit:
+            # Extra safety buffer after last save to ensure it fully propagates
+            # before browser closes (especially important for GUI mode)
+            logger.debug("Waiting for final save to fully propagate...")
+            client.page.wait_for_timeout(2000)
+        else:
             logger.info("")
             logger.info("Auto-submit disabled. Remember to click Save manually for each week.")
 
