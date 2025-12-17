@@ -87,7 +87,37 @@ If you prefer manual setup or are on Linux/Mac, follow these steps:
 
 ### Generate a CSV Template from TMS
 
-The easiest way to get started is to generate a CSV template directly from your TMS timesheet page:
+The easiest way to get started is to generate a CSV template directly from your TMS timesheet page.
+
+#### Recommended: Using the GUI
+
+**Launch the GUI and use the fetch button:**
+
+```bash
+python -m timesheet_bot.gui
+# or
+timesheet_gui
+```
+
+**Steps:**
+1. Click the **"Fetch current template from TMS"** button
+2. Choose where to save the template (default: `TemplateInput.csv`)
+3. Complete SSO login when the browser opens
+4. Wait for automatic extraction (the GUI detects when you're logged in)
+5. A success popup will show the saved file location
+6. Edit the CSV file with your actual hours
+7. Load it back into the GUI to fill your timesheet
+
+**Generated CSV format:**
+```csv
+project_number,project_text,task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+8-26214-10-42,TD_Academy_Simulator_Transition,01 - Unspecified,0,0,0,0,0,0,0
+8-26214-30-01,PR_Engine Commissioning,01 - Unspecified,0,0,0,0,0,0,0
+```
+
+#### Alternative: Using the CLI
+
+For command-line users or automation scripts:
 
 ```bash
 python -m timesheet_bot fetch_input_csv
@@ -100,7 +130,7 @@ python -m timesheet_bot fetch_input_csv
 4. Extract all visible projects from the table
 5. Generate a CSV file (`fetched_timesheet.csv`) with all project numbers and zero-filled hours
 
-**Options:**
+**CLI Options:**
 
 ```bash
 # Save to a specific file
@@ -116,17 +146,10 @@ python -m timesheet_bot fetch_input_csv --headless
 python -m timesheet_bot fetch_input_csv --verbose
 ```
 
-**Generated CSV format:**
-```csv
-project_number,project_text,task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
-8-26214-10-42,TD_Academy_Simulator_Transition,01 - Unspecified,0,0,0,0,0,0,0
-8-26214-30-01,PR_Engine Commissioning,01 - Unspecified,0,0,0,0,0,0,0
-```
-
 **After generation:**
 1. Open the generated CSV file
 2. Fill in your actual hours for each day (replace the `0` values)
-3. Use the `fill` command to automatically fill your timesheet
+3. Use the GUI or CLI to automatically fill your timesheet
 
 **Note:** The generated CSV uses `project_text` and `task` column names. If you want to use it with the existing CSV loader, rename these columns to `project_name` and `project_task` respectively, or simply keep them as-is since they're informational only.
 
