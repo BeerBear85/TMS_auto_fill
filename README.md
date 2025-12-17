@@ -181,6 +181,7 @@ python -m timesheet_bot.gui data/week48.csv
 ```
 
 **GUI Features:**
+- **Fetch template from TMS** - Generate CSV template directly from TMS without leaving the GUI
 - **Load CSV files** via button, drag-and-drop, or command-line argument
 - **Visual CSV preview** with scrollable table showing all project data
 - **Week input** accepts both formats: `48,49,50` or `48-50`
@@ -190,6 +191,17 @@ python -m timesheet_bot.gui data/week48.csv
 - **No persistent settings** - clean slate every time
 
 **GUI Workflow:**
+
+Option 1 - Generate Template from TMS:
+1. Launch the GUI application
+2. Click "Fetch current template from TMS" button
+3. Choose where to save the template CSV file
+4. Complete SSO login when browser opens
+5. Wait for automatic extraction and CSV generation
+6. Edit the generated CSV file with your actual hours
+7. Load the edited CSV file back into the GUI
+
+Option 2 - Use Existing CSV:
 1. Launch the GUI application
 2. Load a CSV file (button, drag-and-drop, or CLI argument)
 3. Inspect the data in the table view
@@ -576,7 +588,17 @@ For issues, questions, or contributions:
 
 ## Changelog
 
-### Version 2.2.0 (Current)
+### Version 2.3.0 (Current)
+- **NEW**: GUI "Fetch current template from TMS" button for template generation
+- **NEW**: Save dialog in GUI with default filename "TemplateInput.csv"
+- **NEW**: Background thread execution for template fetch to prevent UI freezing
+- **NEW**: Progress dialog during template fetch with login instructions
+- **NEW**: Automatic login detection in GUI mode (polls for table every 2 seconds)
+- **ENHANCED**: Template fetch now available in both CLI and GUI modes
+- **ENHANCED**: Better error messages for network issues, login failures, and empty tables
+- **IMPROVED**: GUI workflow now supports complete template-to-fill cycle
+
+### Version 2.2.0
 - **NEW**: `fetch_input_csv` command to generate CSV templates directly from TMS
 - **NEW**: Intelligent table extraction with fallback strategies for project text and tasks
 - **NEW**: Automatic detection of project names and task descriptions from table cells

@@ -172,6 +172,80 @@ class AutomationWorker(QThread):
             self.error.emit(str(e))
 
 
+class FetchTemplateWorker(QThread):
+    """
+    Worker thread for fetching template from TMS.
+    """
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, config: Config, output_path: str):
+        super().__init__()
+        self.config = config
+        self.output_path = output_path
+
+    def run(self):
+        """Execute the template fetch operation."""
+        try:
+            from .playwright_client import TMSClient
+            from .csv_generator import generate_csv_template, CSVGeneratorError
+
+            with TMSClient(self.config) as client:
+                client.navigate_to_tms()
+                client.wait_for_manual_login()
+
+                if not client.wait_for_table():
+                    raise Exception(
+                        "Failed to find timesheet table after login.\n\n"
+                        "Please ensure you:\n"
+                        "1. Completed the SSO login\n"
+                        "2. Navigated to the week view\n"
+                        "3. Can see the timesheet table"
+                    )
+
+                projects_data = client.extract_project_rows()
+
+                if not projects_data:
+                    raise Exception(
+                        "No projects found in the timesheet table.\n\n"
+                        "The table may be empty or not loaded correctly."
+                    )
+
+                csv_path = generate_csv_template(
+                    projects_data,
+                    self.output_path,
+                    force=True
+                )
+
+                self.finished.emit(str(csv_path))
+
+        except CSVGeneratorError as e:
+            self.error.emit(f"Failed to generate CSV template:\n\n{str(e)}")
+        except Exception as e:
+            error_str = str(e)
+            network_error_keywords = ['ERR_NAME_NOT_RESOLVED', 'ERR_CONNECTION',
+                                     'ERR_TUNNEL_CONNECTION_FAILED', 'net::']
+            is_network_error = any(keyword in error_str for keyword in network_error_keywords)
+
+            if is_network_error:
+                message = (
+                    f"Network Connection Error\n\n"
+                    f"{error_str}\n\n"
+                    f"This error is often caused by:\n"
+                    f"• VPN/Proxy not connected (e.g., Zscaler, Cisco AnyConnect)\n"
+                    f"• VPN/Proxy not authenticated\n"
+                    f"• Network connectivity issues\n"
+                    f"• Firewall blocking the connection\n\n"
+                    f"Please ensure:\n"
+                    f"1. Your VPN/Proxy (e.g., Zscaler) is turned ON and authenticated\n"
+                    f"2. You can access the TMS website in your browser\n"
+                    f"3. The URL is reachable"
+                )
+                self.error.emit(message)
+            else:
+                self.error.emit(f"Template fetch operation failed:\n\n{error_str}")
+
+
 class TimesheetGUI(QMainWindow):
     """
     Main GUI window for the Timesheet Automation Tool.
@@ -182,6 +256,7 @@ class TimesheetGUI(QMainWindow):
         self.csv_path = csv_path
         self.rows: List[TimesheetRow] = []
         self.worker: Optional[AutomationWorker] = None
+        self.fetch_worker: Optional[FetchTemplateWorker] = None
 
         self.initUI()
 
@@ -211,9 +286,14 @@ class TimesheetGUI(QMainWindow):
         layout.addWidget(self.file_label)
 
         # Load CSV button
-        load_button = QPushButton("Open File...")
-        load_button.clicked.connect(self.openFileDialog)
-        layout.addWidget(load_button)
+        self.load_button = QPushButton("Open File...")
+        self.load_button.clicked.connect(self.openFileDialog)
+        layout.addWidget(self.load_button)
+
+        # Fetch template button
+        self.fetch_button = QPushButton("Fetch current template from TMS")
+        self.fetch_button.clicked.connect(self.fetchTemplateFromTMS)
+        layout.addWidget(self.fetch_button)
 
         # Table view
         self.table_view = QTableView()
@@ -315,6 +395,97 @@ class TimesheetGUI(QMainWindow):
                 "Error",
                 f"Unexpected error loading CSV:\n\n{str(e)}"
             )
+
+    def fetchTemplateFromTMS(self):
+        """
+        Fetch current template from TMS by opening browser and extracting projects.
+        """
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Template CSV",
+            "TemplateInput.csv",
+            "CSV Files (*.csv);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        config = Config(
+            csv_path=None,
+            headless=False,
+            verbose=False
+        )
+
+        self.fetch_worker = FetchTemplateWorker(config, file_path)
+        self.fetch_worker.finished.connect(self.onFetchFinished)
+        self.fetch_worker.error.connect(self.onFetchError)
+
+        self.fetch_progress_dialog = QProgressDialog(
+            "Fetching template from TMS...\n\n"
+            "Please complete login in the browser window.\n"
+            "The operation will continue automatically once you're logged in.",
+            None,
+            0,
+            0,
+            self
+        )
+        self.fetch_progress_dialog.setWindowTitle("Fetching Template")
+        self.fetch_progress_dialog.setWindowModality(Qt.WindowModal)
+        self.fetch_progress_dialog.setCancelButton(None)
+        self.fetch_progress_dialog.show()
+
+        self.fetch_button.setEnabled(False)
+        self.load_button.setEnabled(False)
+        self.validate_button.setEnabled(False)
+        self.run_button.setEnabled(False)
+
+        self.fetch_worker.start()
+
+    def onFetchFinished(self, csv_path: str):
+        """
+        Handle fetch operation completion.
+
+        Args:
+            csv_path: Path to the saved CSV file
+        """
+        if hasattr(self, 'fetch_progress_dialog'):
+            self.fetch_progress_dialog.close()
+
+        self.fetch_button.setEnabled(True)
+        self.load_button.setEnabled(True)
+        self.validate_button.setEnabled(True)
+        self.run_button.setEnabled(True)
+
+        file_name = Path(csv_path).name
+        QMessageBox.information(
+            self,
+            "Template Saved",
+            f"Template saved successfully!\n\n"
+            f"File: {file_name}\n"
+            f"Path: {csv_path}\n\n"
+            f"You can now edit it and then open it in this GUI."
+        )
+
+    def onFetchError(self, error_message: str):
+        """
+        Handle fetch operation error.
+
+        Args:
+            error_message: Error message
+        """
+        if hasattr(self, 'fetch_progress_dialog'):
+            self.fetch_progress_dialog.close()
+
+        self.fetch_button.setEnabled(True)
+        self.load_button.setEnabled(True)
+        self.validate_button.setEnabled(True)
+        self.run_button.setEnabled(True)
+
+        QMessageBox.critical(
+            self,
+            "Fetch Failed",
+            error_message
+        )
 
     def validateInput(self):
         """
