@@ -11,7 +11,7 @@ Write-Host "[1/4] Checking Python installation..." -ForegroundColor Yellow
 try {
     $pythonVersion = python --version 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "  ✓ Found: $pythonVersion" -ForegroundColor Green
+        Write-Host "  [OK] Found: $pythonVersion" -ForegroundColor Green
 
         # Check Python version is 3.8 or higher
         $versionMatch = $pythonVersion -match "Python (\d+)\.(\d+)"
@@ -20,14 +20,14 @@ try {
             $minorVersion = [int]$Matches[2]
 
             if (($majorVersion -lt 3) -or ($majorVersion -eq 3 -and $minorVersion -lt 8)) {
-                Write-Host "  ✗ Error: Python 3.8 or higher is required" -ForegroundColor Red
+                Write-Host "  [ERROR] Python 3.8 or higher is required" -ForegroundColor Red
                 Write-Host "  Please install Python 3.8+ from https://www.python.org/downloads/" -ForegroundColor Red
                 exit 1
             }
         }
     }
 } catch {
-    Write-Host "  ✗ Error: Python is not installed or not in PATH" -ForegroundColor Red
+    Write-Host "  [ERROR] Python is not installed or not in PATH" -ForegroundColor Red
     Write-Host "  Please install Python 3.8+ from https://www.python.org/downloads/" -ForegroundColor Red
     exit 1
 }
@@ -40,9 +40,9 @@ if (Test-Path "venv") {
 } else {
     python -m venv venv
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "  ✓ Virtual environment created successfully" -ForegroundColor Green
+        Write-Host "  [OK] Virtual environment created successfully" -ForegroundColor Green
     } else {
-        Write-Host "  ✗ Error: Failed to create virtual environment" -ForegroundColor Red
+        Write-Host "  [ERROR] Failed to create virtual environment" -ForegroundColor Red
         exit 1
     }
 }
@@ -55,15 +55,15 @@ Write-Host "  Activating virtual environment..." -ForegroundColor Gray
 # Run pip install in the virtual environment
 & "venv\Scripts\python.exe" -m pip install --upgrade pip | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "  ✗ Error: Failed to upgrade pip" -ForegroundColor Red
+    Write-Host "  [ERROR] Failed to upgrade pip" -ForegroundColor Red
     exit 1
 }
 
 & "venv\Scripts\pip.exe" install -e .
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "  ✓ Package and dependencies installed successfully" -ForegroundColor Green
+    Write-Host "  [OK] Package and dependencies installed successfully" -ForegroundColor Green
 } else {
-    Write-Host "  ✗ Error: Failed to install dependencies" -ForegroundColor Red
+    Write-Host "  [ERROR] Failed to install dependencies" -ForegroundColor Red
     exit 1
 }
 
@@ -73,16 +73,16 @@ Write-Host "[4/4] Installing Playwright browsers..." -ForegroundColor Yellow
 Write-Host "  This may take a few minutes..." -ForegroundColor Gray
 & "venv\Scripts\playwright.exe" install chromium
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "  ✓ Chromium browser installed successfully" -ForegroundColor Green
+    Write-Host "  [OK] Chromium browser installed successfully" -ForegroundColor Green
 } else {
-    Write-Host "  ✗ Error: Failed to install Playwright browsers" -ForegroundColor Red
+    Write-Host "  [ERROR] Failed to install Playwright browsers" -ForegroundColor Red
     exit 1
 }
 
 # Success message
 Write-Host ""
 Write-Host "================================" -ForegroundColor Green
-Write-Host "✓ Setup completed successfully!" -ForegroundColor Green
+Write-Host "SUCCESS: Setup completed!" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
