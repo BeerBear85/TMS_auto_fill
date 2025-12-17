@@ -8,6 +8,7 @@ inspecting timesheet data, and running the automation.
 import sys
 from pathlib import Path
 from typing import List, Optional
+from datetime import datetime
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QProgressDialog,
     QHeaderView,
+    QSpinBox,
 )
 from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, Signal, QThread
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QColor, QBrush
@@ -225,7 +227,7 @@ class TimesheetGUI(QMainWindow):
 
         layout.addWidget(self.table_view)
 
-        # Week selection section
+        # Week and year selection section
         week_layout = QHBoxLayout()
         week_label = QLabel("Weeks to fill:")
         week_label.setStyleSheet("font-size: 12px;")
@@ -235,6 +237,18 @@ class TimesheetGUI(QMainWindow):
         self.week_input.setPlaceholderText("e.g., 48-50 or 48,49,50")
         self.week_input.setMaximumWidth(200)
         week_layout.addWidget(self.week_input)
+
+        # Year input
+        year_label = QLabel("Year:")
+        year_label.setStyleSheet("font-size: 12px; margin-left: 20px;")
+        week_layout.addWidget(year_label)
+
+        self.year_input = QSpinBox()
+        self.year_input.setRange(2000, 2100)
+        self.year_input.setValue(datetime.now().year)
+        self.year_input.setMaximumWidth(100)
+        week_layout.addWidget(self.year_input)
+
         week_layout.addStretch()
 
         layout.addLayout(week_layout)
@@ -369,12 +383,16 @@ class TimesheetGUI(QMainWindow):
                 )
                 return  # Don't show success dialog
 
+            # Get year value
+            year = self.year_input.value()
+
             # Show validation success with connectivity status
             QMessageBox.information(
                 self,
                 "Validation Successful",
                 f"CSV: {len(self.rows)} project(s) loaded\n"
                 f"Weeks: {weeks}\n"
+                f"Year: {year}\n"
                 f"Network: Connected to TMS ✓\n\n"
                 f"Input is valid and ready to run."
             )
@@ -419,10 +437,14 @@ class TimesheetGUI(QMainWindow):
             )
             return
 
+        # Get year value
+        year = self.year_input.value()
+
         # Create configuration
         config = Config(
             csv_path=self.csv_path,
             weeks=weeks,
+            year=year,
             headless=False,  # Always headful for GUI
             auto_submit=False,  # User must manually submit
             no_overwrite=False,
@@ -445,7 +467,9 @@ class TimesheetGUI(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Confirm Run",
-            f"Ready to fill {len(self.rows)} project(s) for weeks: {weeks}\n\n"
+            f"Ready to fill {len(self.rows)} project(s) for:\n"
+            f"  Weeks: {weeks}\n"
+            f"  Year: {year}\n\n"
             f"This will open a browser window.\n"
             f"Continue?",
             QMessageBox.Yes | QMessageBox.No,

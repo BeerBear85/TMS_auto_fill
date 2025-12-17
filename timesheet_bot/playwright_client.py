@@ -5,7 +5,7 @@ This module handles all browser automation using Playwright,
 including navigation, element interaction, and data filling.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page, Locator, TimeoutError as PlaywrightTimeoutError
 
 from .config import Config
@@ -680,6 +680,134 @@ class TMSClient:
             log_error(f"Failed to click Promark: {e}", self.logger)
             return False
 
+    def extract_project_rows(self) -> List[Dict[str, str]]:
+        """
+        Extract project data from all visible rows in the timesheet table.
+
+        Returns:
+            List of dictionaries containing project_number, project_text, and task
+
+        Raises:
+            Exception: If table extraction fails
+        """
+        log_step("Extracting project data from table...", self.logger)
+
+        projects = []
+
+        try:
+            # Find all table rows
+            rows = self.page.locator(TMSSelectors.TABLE_ROWS).all()
+
+            if len(rows) == 0:
+                raise Exception("No table rows found")
+
+            self.logger.info(f"Found {len(rows)} row(s) in table")
+
+            for i, row in enumerate(rows, 1):
+                try:
+                    # Extract project number (required)
+                    project_cell = row.locator('td.cdk-column-Project').first
+                    if project_cell.count() == 0:
+                        self.logger.debug(f"  Row {i}: Skipping - no project column found")
+                        continue
+
+                    project_number = project_cell.text_content().strip()
+                    if not project_number:
+                        self.logger.debug(f"  Row {i}: Skipping - empty project number")
+                        continue
+
+                    # Skip rows that look like totals/summaries
+                    if 'total' in project_number.lower() or 'sum' in project_number.lower():
+                        self.logger.debug(f"  Row {i}: Skipping summary row")
+                        continue
+
+                    # Get all cells in the row to analyze structure
+                    all_cells = row.locator('td').all()
+
+                    # Extract project text/name
+                    # Strategy 1: Try known column name variations
+                    project_text = ""
+                    for col_name in ['ProjectText', 'ProjectName', 'Project_Text', 'Project_Name',
+                                    'Description', 'Text', 'Name', 'Projecttext', 'projecttext']:
+                        text_cell = row.locator(f'td.cdk-column-{col_name}').first
+                        if text_cell.count() > 0:
+                            project_text = text_cell.text_content().strip()
+                            if project_text and project_text != project_number:
+                                self.logger.debug(f"    Found project_text in column: cdk-column-{col_name}")
+                                break
+
+                    # Strategy 2: If not found, look for cells that contain text but aren't the project number
+                    # and aren't input fields. The project text is typically in the 2nd or 3rd column.
+                    if not project_text:
+                        for idx, cell in enumerate(all_cells):
+                            # Skip cells with input fields
+                            if cell.locator('input').count() > 0:
+                                continue
+
+                            cell_text = cell.text_content().strip()
+
+                            # Check if this looks like project text (not empty, not the project number)
+                            if cell_text and cell_text != project_number:
+                                # Check if it looks like a project name (has underscores or alphanumeric)
+                                # and is not just a short code
+                                if len(cell_text) > 3 and ('_' in cell_text or len(cell_text) > 10):
+                                    project_text = cell_text
+                                    self.logger.debug(f"    Found project_text in cell {idx}: {project_text[:30]}...")
+                                    break
+
+                    # Extract task
+                    task = ""
+                    for col_name in ['Task', 'Activity', 'TaskDescription', 'task', 'Tasktext']:
+                        task_cell = row.locator(f'td.cdk-column-{col_name}').first
+                        if task_cell.count() > 0:
+                            task = task_cell.text_content().strip()
+                            if task:
+                                self.logger.debug(f"    Found task in column: cdk-column-{col_name}")
+                                break
+
+                    # Strategy 2 for task: Look for cells with task-like patterns (digits followed by text)
+                    if not task:
+                        import re
+                        for idx, cell in enumerate(all_cells):
+                            if cell.locator('input').count() > 0:
+                                continue
+
+                            cell_text = cell.text_content().strip()
+
+                            # Check if it looks like a task (e.g., "01 - Unspecified", "65 - Absence")
+                            if re.match(r'^\d+\s*[-–]\s*.+', cell_text):
+                                task = cell_text
+                                self.logger.debug(f"    Found task in cell {idx}: {task}")
+                                break
+
+                    # Create project data dictionary
+                    # Use project_number as fallback only if absolutely nothing found
+                    project_data = {
+                        'project_number': project_number,
+                        'project_text': project_text if project_text else project_number,
+                        'task': task if task else '01 - Unspecified'
+                    }
+
+                    projects.append(project_data)
+                    self.logger.debug(
+                        f"  Row {i}: Extracted - {project_number} | "
+                        f"{project_text[:30] if project_text else 'N/A'}... | {task[:20] if task else 'N/A'}..."
+                    )
+
+                except Exception as e:
+                    log_warning(f"  Row {i}: Error extracting data - {e}", self.logger)
+                    continue
+
+            if not projects:
+                raise Exception("No valid project rows could be extracted from table")
+
+            log_success(f"Successfully extracted {len(projects)} project(s)", self.logger)
+            return projects
+
+        except Exception as e:
+            log_error(f"Failed to extract project rows: {e}", self.logger)
+            raise
+
     def take_screenshot(self, path: str):
         """
         Take a screenshot of the current page.
@@ -745,16 +873,20 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
         for week_index, target_week in enumerate(weeks_to_process, 1):
             logger.info("")
             logger.info("=" * 70)
-            logger.info(f"PROCESSING WEEK {week_index}/{len(weeks_to_process)}: Week {target_week}")
-            logger.info("=" * 70)
 
-            # Determine target year (assuming same year as baseline for simplicity)
-            # In a production system, you might want to handle year boundaries more carefully
-            target_year = baseline_year
+            # Determine target year
+            # Use config.year if provided, otherwise assume same year as baseline
+            if config.year is not None:
+                target_year = config.year
+            else:
+                target_year = baseline_year
+
+            logger.info(f"PROCESSING WEEK {week_index}/{len(weeks_to_process)}: Week {target_week}, {target_year}")
+            logger.info("=" * 70)
 
             try:
                 # Navigate to the target week if needed
-                if target_week != baseline_week or week_index > 1:
+                if target_week != baseline_week or target_year != baseline_year or week_index > 1:
                     # Get current week before navigation
                     current_year, current_week = client.detect_baseline_week()
 

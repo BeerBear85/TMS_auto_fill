@@ -11,10 +11,11 @@ from pathlib import Path
 
 from .config import Config
 from .csv_loader import load_csv, CSVLoadError
-from .playwright_client import run_fill_operation
+from .playwright_client import run_fill_operation, TMSClient
 from .logging_utils import setup_logging, get_logger, log_section, log_error, log_success
 from .week_utils import parse_week_range, WeekRangeParseError
 from .network_utils import check_tms_connectivity, is_vpn_proxy_error, format_connectivity_error
+from .csv_generator import generate_csv_template, CSVGeneratorError
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -125,6 +126,39 @@ Examples:
         '-v',
         action='store_true',
         help='Enable verbose logging (debug level)'
+    )
+
+    # Fetch input CSV command
+    fetch_parser = subparsers.add_parser(
+        'fetch_input_csv',
+        help='Generate CSV template from current TMS page'
+    )
+
+    fetch_parser.add_argument(
+        '--output',
+        type=str,
+        metavar='PATH',
+        default='fetched_timesheet.csv',
+        help='Path to save the CSV file (default: fetched_timesheet.csv)'
+    )
+
+    fetch_parser.add_argument(
+        '--headless',
+        action='store_true',
+        help='Run browser in headless mode (no GUI)'
+    )
+
+    fetch_parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+        help='Enable verbose logging (debug level)'
+    )
+
+    fetch_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Overwrite existing output file if it exists'
     )
 
     return parser
@@ -291,6 +325,92 @@ def cmd_fill(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_fetch_input_csv(args: argparse.Namespace) -> int:
+    """
+    Execute the fetch_input_csv command.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success, non-zero for error)
+    """
+    logger = get_logger()
+
+    # Create configuration for browser automation
+    config = Config(
+        csv_path=None,  # Not needed for fetch operation
+        headless=args.headless,
+        verbose=args.verbose
+    )
+
+    # Validate output file
+    output_path = Path(args.output).absolute()
+
+    if output_path.exists() and not args.force:
+        log_error(
+            f"Error: Output file already exists. Use --force to overwrite.",
+            logger
+        )
+        logger.info(f"  File: {output_path}")
+        return 1
+
+    log_section("Fetching CSV Template from TMS", logger)
+
+    try:
+        # Start browser and navigate to TMS
+        with TMSClient(config) as client:
+            # Navigate to TMS
+            client.navigate_to_tms()
+
+            # Wait for manual login
+            logger.info("")
+            logger.info("Please log in and navigate to the correct week in TMS.")
+            logger.info("Press ENTER when ready...")
+            input()
+
+            # Wait for table to load
+            if not client.wait_for_table():
+                raise Exception("Failed to find timesheet table after login")
+
+            # Extract project rows
+            logger.info("")
+            projects_data = client.extract_project_rows()
+
+            # Generate CSV
+            logger.info("")
+            log_section("Generating CSV Template", logger)
+
+            csv_path = generate_csv_template(
+                projects_data,
+                str(output_path),
+                force=args.force
+            )
+
+            # Success!
+            logger.info("")
+            log_success(f"Generated CSV template at: {csv_path}", logger)
+            return 0
+
+    except CSVGeneratorError as e:
+        logger.info("")
+        log_error(f"CSV generation failed: {e}", logger)
+        return 1
+
+    except KeyboardInterrupt:
+        logger.info("")
+        logger.warning("Operation cancelled by user")
+        return 130  # Standard exit code for SIGINT
+
+    except Exception as e:
+        logger.info("")
+        log_error(f"Operation failed: {e}", logger)
+        if config.verbose:
+            import traceback
+            logger.debug(traceback.format_exc())
+        return 1
+
+
 def main(argv=None):
     """
     Main entry point for the CLI.
@@ -320,13 +440,15 @@ def main(argv=None):
         parser.print_help()
         return 1
 
-    # Validate arguments
-    if not validate_args(args):
+    # Validate arguments (only for fill command currently)
+    if args.command == 'fill' and not validate_args(args):
         return 1
 
     # Execute command
     if args.command == 'fill':
         return cmd_fill(args)
+    elif args.command == 'fetch_input_csv':
+        return cmd_fetch_input_csv(args)
     else:
         log_error(f"Unknown command: {args.command}", logger)
         return 1

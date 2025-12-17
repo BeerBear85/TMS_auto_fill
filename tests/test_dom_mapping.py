@@ -254,3 +254,129 @@ class TestSelectorHelpers:
         """Test that WEEKDAYS contains all days."""
         expected = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
         assert TMSSelectors.WEEKDAYS == expected
+
+
+class TestTableExtraction:
+    """Tests for extracting project data from table."""
+
+    def test_extract_project_data_with_columns(self, page: Page):
+        """Test extracting project data when columns have proper names."""
+        # Extended HTML with project details
+        html_with_projects = """
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"><title>Test TMS</title></head>
+        <body>
+            <table mat-table class="mat-table cdk-table">
+                <tbody>
+                    <tr mat-row class="mat-row cdk-row">
+                        <td class="mat-cell cdk-cell cdk-column-Project">8-26214-10-42</td>
+                        <td class="mat-cell cdk-cell cdk-column-ProjectText">TD_Academy_Simulator_Transition</td>
+                        <td class="mat-cell cdk-cell cdk-column-Task">01 - Unspecified</td>
+                        <td class="mat-cell cdk-column-Monday">
+                            <input type="text" name="monday" class="dayField" id="0-0">
+                        </td>
+                    </tr>
+                    <tr mat-row class="mat-row cdk-row">
+                        <td class="mat-cell cdk-cell cdk-column-Project">8-26214-30-01</td>
+                        <td class="mat-cell cdk-cell cdk-column-ProjectText">PR_Engine Commissioning</td>
+                        <td class="mat-cell cdk-cell cdk-column-Task">02 - Development</td>
+                        <td class="mat-cell cdk-column-Monday">
+                            <input type="text" name="monday" class="dayField" id="1-0">
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+        page.set_content(html_with_projects)
+
+        # Get all rows
+        rows = page.locator(TMSSelectors.TABLE_ROWS).all()
+        assert len(rows) == 2
+
+        # Extract first project
+        row1 = rows[0]
+        project_number1 = row1.locator('td.cdk-column-Project').first.text_content().strip()
+        project_text1 = row1.locator('td.cdk-column-ProjectText').first.text_content().strip()
+        task1 = row1.locator('td.cdk-column-Task').first.text_content().strip()
+
+        assert project_number1 == "8-26214-10-42"
+        assert project_text1 == "TD_Academy_Simulator_Transition"
+        assert task1 == "01 - Unspecified"
+
+        # Extract second project
+        row2 = rows[1]
+        project_number2 = row2.locator('td.cdk-column-Project').first.text_content().strip()
+        project_text2 = row2.locator('td.cdk-column-ProjectText').first.text_content().strip()
+        task2 = row2.locator('td.cdk-column-Task').first.text_content().strip()
+
+        assert project_number2 == "8-26214-30-01"
+        assert project_text2 == "PR_Engine Commissioning"
+        assert task2 == "02 - Development"
+
+    def test_extract_project_data_without_column_names(self, page: Page):
+        """Test extracting project data when columns don't have specific names (fallback strategy)."""
+        # HTML without specific column names - relies on cell position
+        html_no_columns = """
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"><title>Test TMS</title></head>
+        <body>
+            <table mat-table class="mat-table cdk-table">
+                <tbody>
+                    <tr mat-row class="mat-row cdk-row">
+                        <td class="mat-cell cdk-cell">8-26214-10-42</td>
+                        <td class="mat-cell cdk-cell">TD_Academy_Simulator_Transition</td>
+                        <td class="mat-cell cdk-cell">01 - Unspecified</td>
+                        <td class="mat-cell"><input type="text" name="monday" class="dayField"></td>
+                    </tr>
+                    <tr mat-row class="mat-row cdk-row">
+                        <td class="mat-cell cdk-cell">8-26245-04-01</td>
+                        <td class="mat-cell cdk-cell">CW_Administration</td>
+                        <td class="mat-cell cdk-cell">65 - Absence</td>
+                        <td class="mat-cell"><input type="text" name="monday" class="dayField"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </body>
+        </html>
+        """
+        page.set_content(html_no_columns)
+
+        # Get all rows and cells
+        rows = page.locator(TMSSelectors.TABLE_ROWS).all()
+        assert len(rows) == 2
+
+        # Row 1: Test fallback extraction
+        row1 = rows[0]
+        cells1 = row1.locator('td').all()
+
+        # Project number is in first cell
+        project_number1 = cells1[0].text_content().strip()
+        assert project_number1 == "8-26214-10-42"
+
+        # Project text should be found by heuristic (has underscores, longer text)
+        project_text1 = cells1[1].text_content().strip()
+        assert project_text1 == "TD_Academy_Simulator_Transition"
+        assert len(project_text1) > 10  # Passes the length heuristic
+        assert '_' in project_text1  # Passes the underscore heuristic
+
+        # Task should be found by pattern matching (digits followed by hyphen)
+        task1 = cells1[2].text_content().strip()
+        assert task1 == "01 - Unspecified"
+        import re
+        assert re.match(r'^\d+\s*[-–]\s*.+', task1)  # Matches pattern
+
+        # Row 2: Different project
+        row2 = rows[1]
+        cells2 = row2.locator('td').all()
+
+        project_number2 = cells2[0].text_content().strip()
+        project_text2 = cells2[1].text_content().strip()
+        task2 = cells2[2].text_content().strip()
+
+        assert project_number2 == "8-26245-04-01"
+        assert project_text2 == "CW_Administration"  # Passes length heuristic
+        assert task2 == "65 - Absence"  # Matches task pattern

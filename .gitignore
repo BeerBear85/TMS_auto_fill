@@ -60,6 +60,9 @@ test-results/
 # Data files (optional - uncomment if you don't want to commit CSV data)
 # data/*.csv
 
+# User data and generated CSV files (root directory only)
+/*.csv
+
 # Screenshots
 screenshots/
 *.png
