@@ -3,13 +3,16 @@ CSV loader for timesheet data.
 
 This module handles loading and parsing CSV files containing timesheet data.
 It validates the format and converts values to the appropriate types.
+
+Supports both canonical and legacy CSV header formats for backward compatibility.
 """
 
 import csv
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from .models import TimesheetRow
+from .csv_schema import CSVSchema
 
 
 class CSVLoadError(Exception):
@@ -21,24 +24,18 @@ class CSVLoader:
     """
     Loads timesheet data from CSV files.
 
-    Expected CSV format:
+    Expected CSV format (canonical):
         project_number,project_name,project_task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
         8-26214-10-42,TD_Academy_Simulator,01 - Unspecified,7.40,7.40,7.40,7.40,7.40,,
         8-26214-30-01,PR_Engine,01 - Unspecified,,,,,1.0,,
+
+    Also supports legacy format (automatically mapped):
+        project_number,project_text,task,monday,tuesday,wednesday,thursday,friday,saturday,sunday
+        (legacy headers 'project_text' and 'task' are automatically converted to canonical names)
     """
 
-    REQUIRED_HEADERS = [
-        'project_number',
-        'project_name',
-        'project_task',
-        'monday',
-        'tuesday',
-        'wednesday',
-        'thursday',
-        'friday',
-        'saturday',
-        'sunday'
-    ]
+    # Use canonical headers from central schema
+    REQUIRED_HEADERS = CSVSchema.CANONICAL_HEADERS
 
     def __init__(self, file_path: str):
         """
@@ -58,6 +55,8 @@ class CSVLoader:
         """
         Load timesheet rows from the CSV file.
 
+        Automatically handles both canonical and legacy header formats.
+
         Returns:
             List of TimesheetRow objects
 
@@ -65,9 +64,11 @@ class CSVLoader:
             CSVLoadError: If CSV format is invalid or data is malformed
         """
         try:
-            with open(self.file_path, 'r', encoding='utf-8') as f:
+            with open(self.file_path, 'r', encoding=CSVSchema.ENCODING) as f:
                 reader = csv.DictReader(f)
                 self._validate_headers(reader.fieldnames)
+                # Create header mapping for legacy support
+                self.header_mapping = CSVSchema.create_header_mapping(reader.fieldnames)
                 return self._parse_rows(reader)
         except CSVLoadError:
             raise
@@ -78,23 +79,25 @@ class CSVLoader:
         """
         Validate that CSV has all required headers.
 
+        Supports both canonical and legacy header names (e.g., 'project_text' → 'project_name').
+
         Args:
             headers: List of header names from CSV
 
         Raises:
             CSVLoadError: If headers are missing or incorrect
         """
-        if not headers:
-            raise CSVLoadError("CSV file is empty or has no headers")
+        # Use centralized validation from schema
+        is_valid, error_message = CSVSchema.validate_headers(headers)
 
-        # Normalize headers (strip whitespace, lowercase)
-        normalized = [h.strip().lower() for h in headers]
-
-        missing = [h for h in self.REQUIRED_HEADERS if h not in normalized]
-        if missing:
-            raise CSVLoadError(
-                f"CSV missing required headers: {', '.join(missing)}"
-            )
+        if not is_valid:
+            # Enhance error message with legacy header information
+            if error_message and "missing required headers" in error_message.lower():
+                error_message += (
+                    "\n\nNote: This CSV loader accepts both canonical headers "
+                    "(project_name, project_task) and legacy headers (project_text, task)."
+                )
+            raise CSVLoadError(error_message)
 
     def _parse_rows(self, reader: csv.DictReader) -> List[TimesheetRow]:
         """
@@ -127,6 +130,8 @@ class CSVLoader:
         """
         Parse a single CSV row into a TimesheetRow object.
 
+        Automatically maps legacy header names to canonical names.
+
         Args:
             row_dict: Dictionary of row data from CSV
             line_num: Line number for error reporting
@@ -137,26 +142,29 @@ class CSVLoader:
         Raises:
             ValueError: If data is invalid
         """
-        # Normalize keys (strip whitespace, lowercase)
-        normalized_dict = {k.strip().lower(): v for k, v in row_dict.items()}
+        # Normalize keys using schema (handles legacy aliases)
+        normalized_dict = {}
+        for key, value in row_dict.items():
+            canonical_key = CSVSchema.normalize_header(key)
+            normalized_dict[canonical_key] = value
 
         # Get project number
-        project_number = normalized_dict.get('project_number', '')
+        project_number = normalized_dict.get(CSVSchema.PROJECT_NUMBER, '')
         project_number = project_number.strip() if project_number else ''
         if not project_number:
             # Skip rows with empty project numbers (allows for blank lines)
             return None
 
         # Get project name and task (optional fields)
-        project_name = normalized_dict.get('project_name', '')
+        project_name = normalized_dict.get(CSVSchema.PROJECT_NAME, '')
         project_name = project_name.strip() if project_name else ''
 
-        project_task = normalized_dict.get('project_task', '')
+        project_task = normalized_dict.get(CSVSchema.PROJECT_TASK, '')
         project_task = project_task.strip() if project_task else ''
 
         # Parse weekday values
         weekdays = {}
-        for day in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']:
+        for day in CSVSchema.get_weekday_headers():
             value = normalized_dict.get(day, '')
             value_str = value.strip() if value is not None else ''
             weekdays[day] = self._parse_hours_value(value_str, day, line_num)

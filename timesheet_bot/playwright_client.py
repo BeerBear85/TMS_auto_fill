@@ -18,6 +18,7 @@ from .models import (
 from .selectors import TMSSelectors
 from .logging_utils import get_logger, log_step, log_error, log_warning, log_success
 from .week_utils import parse_week_display, calculate_week_offset, validate_week_offset
+from .csv_schema import CSVSchema
 
 
 class TMSClient:
@@ -712,7 +713,8 @@ class TMSClient:
         Extract project data from all visible rows in the timesheet table.
 
         Returns:
-            List of dictionaries containing project_number, project_text, and task
+            List of dictionaries containing project_number, project_name, and project_task
+            (using canonical CSV schema field names)
 
         Raises:
             Exception: If table extraction fails
@@ -807,12 +809,12 @@ class TMSClient:
                                 self.logger.debug(f"    Found task in cell {idx}: {task}")
                                 break
 
-                    # Create project data dictionary
+                    # Create project data dictionary using canonical CSV schema field names
                     # Use project_number as fallback only if absolutely nothing found
                     project_data = {
-                        'project_number': project_number,
-                        'project_text': project_text if project_text else project_number,
-                        'task': task if task else '01 - Unspecified'
+                        CSVSchema.PROJECT_NUMBER: project_number,
+                        CSVSchema.PROJECT_NAME: project_text if project_text else project_number,
+                        CSVSchema.PROJECT_TASK: task if task else '01 - Unspecified'
                     }
 
                     projects.append(project_data)

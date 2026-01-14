@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
+from .csv_schema import CSVSchema
+
 
 @dataclass
 class ProjectData:
@@ -18,31 +20,31 @@ class ProjectData:
 
     Attributes:
         project_number: Full project number (e.g., "8-26214-10-42")
-        project_text: Project name/description
-        task: Task description (e.g., "01 – Unspecified")
+        project_name: Project name/description
+        project_task: Task description (e.g., "01 – Unspecified")
     """
     project_number: str
-    project_text: str
-    task: str
+    project_name: str
+    project_task: str
 
     def to_csv_row(self) -> Dict[str, str]:
         """
         Convert to CSV row dictionary with zero-filled weekdays.
 
         Returns:
-            Dictionary with all CSV columns
+            Dictionary with all CSV columns using canonical headers
         """
         return {
-            'project_number': self.project_number,
-            'project_text': self.project_text,
-            'task': self.task,
-            'monday': '0',
-            'tuesday': '0',
-            'wednesday': '0',
-            'thursday': '0',
-            'friday': '0',
-            'saturday': '0',
-            'sunday': '0',
+            CSVSchema.PROJECT_NUMBER: self.project_number,
+            CSVSchema.PROJECT_NAME: self.project_name,
+            CSVSchema.PROJECT_TASK: self.project_task,
+            CSVSchema.MONDAY: '0',
+            CSVSchema.TUESDAY: '0',
+            CSVSchema.WEDNESDAY: '0',
+            CSVSchema.THURSDAY: '0',
+            CSVSchema.FRIDAY: '0',
+            CSVSchema.SATURDAY: '0',
+            CSVSchema.SUNDAY: '0',
         }
 
 
@@ -54,21 +56,12 @@ class CSVGeneratorError(Exception):
 class CSVGenerator:
     """
     Generates CSV templates from extracted TMS table data.
+
+    Uses canonical headers from CSVSchema for consistency with CSV loader.
     """
 
-    # CSV header columns in correct order
-    CSV_HEADERS = [
-        'project_number',
-        'project_text',
-        'task',
-        'monday',
-        'tuesday',
-        'wednesday',
-        'thursday',
-        'friday',
-        'saturday',
-        'sunday'
-    ]
+    # CSV header columns in correct order (from central schema)
+    CSV_HEADERS = CSVSchema.CANONICAL_HEADERS
 
     def __init__(self, output_path: str, force: bool = False):
         """
@@ -110,8 +103,8 @@ class CSVGenerator:
             # Ensure parent directory exists
             self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write CSV file
-            with open(self.output_path, 'w', encoding='utf-8', newline='') as f:
+            # Write CSV file using schema encoding standards
+            with open(self.output_path, 'w', encoding=CSVSchema.ENCODING, newline=CSVSchema.NEWLINE) as f:
                 writer = csv.DictWriter(f, fieldnames=self.CSV_HEADERS)
 
                 # Write header
@@ -131,6 +124,8 @@ def validate_project_data(data: Dict[str, str]) -> ProjectData:
     """
     Validate and convert raw project data to ProjectData object.
 
+    Supports both canonical and legacy field names for backward compatibility.
+
     Args:
         data: Raw dictionary with project information
 
@@ -140,9 +135,19 @@ def validate_project_data(data: Dict[str, str]) -> ProjectData:
     Raises:
         CSVGeneratorError: If required fields are missing or invalid
     """
-    # Check required fields
-    required_fields = ['project_number', 'project_text', 'task']
-    missing = [f for f in required_fields if f not in data or not data[f]]
+    # Normalize keys to handle both canonical and legacy names
+    normalized_data = {}
+    for key, value in data.items():
+        canonical_key = CSVSchema.normalize_header(key)
+        normalized_data[canonical_key] = value
+
+    # Check required fields (using canonical names)
+    required_fields = [
+        CSVSchema.PROJECT_NUMBER,
+        CSVSchema.PROJECT_NAME,
+        CSVSchema.PROJECT_TASK
+    ]
+    missing = [f for f in required_fields if f not in normalized_data or not normalized_data[f]]
 
     if missing:
         raise CSVGeneratorError(
@@ -152,9 +157,9 @@ def validate_project_data(data: Dict[str, str]) -> ProjectData:
     # Create and validate ProjectData
     try:
         project = ProjectData(
-            project_number=data['project_number'].strip(),
-            project_text=data['project_text'].strip(),
-            task=data['task'].strip()
+            project_number=normalized_data[CSVSchema.PROJECT_NUMBER].strip(),
+            project_name=normalized_data[CSVSchema.PROJECT_NAME].strip(),
+            project_task=normalized_data[CSVSchema.PROJECT_TASK].strip()
         )
 
         if not project.project_number:
