@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QTableView,
+    QAbstractItemView,
     QLineEdit,
     QLabel,
     QFileDialog,
@@ -41,14 +42,22 @@ from .network_utils import check_tms_connectivity, is_vpn_proxy_error
 class TimesheetTableModel(QAbstractTableModel):
     """
     Table model for displaying timesheet CSV data with totals row.
+
+    Supports editing of project and weekday cells, with automatic dirty state tracking.
     """
 
     WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     TOTALS_BG_COLOR = QColor(180, 180, 180)  # Darker grey for totals
+    ALTERNATE_BG_COLOR = QColor(245, 255, 245)  # Very subtle light-green for alternating rows/columns
+
+    # Signal emitted when dirty state changes (has unsaved edits)
+    dirty_state_changed = Signal(bool)
 
     def __init__(self, rows: Optional[List[TimesheetRow]] = None):
         super().__init__()
         self.rows = rows or []
+        self._original_rows = []  # Deep copy for dirty tracking
+        self._is_dirty = False
         self.headers = ['Project', 'Project Name', 'Project Task'] + self.WEEKDAYS + ['Total']
 
     def rowCount(self, parent=QModelIndex()):
@@ -76,9 +85,12 @@ class TimesheetTableModel(QAbstractTableModel):
         if role == Qt.BackgroundRole:
             if is_totals_row or is_total_column:
                 return QBrush(self.TOTALS_BG_COLOR)
+            # Apply subtle light-green to every second row and column for readability
+            if (row_idx % 2 == 1) or (col % 2 == 1):
+                return QBrush(self.ALTERNATE_BG_COLOR)
             return None
 
-        # Display role - show data
+        # Display role - show formatted data
         if role == Qt.DisplayRole:
             # Totals row
             if is_totals_row:
@@ -108,6 +120,43 @@ class TimesheetTableModel(QAbstractTableModel):
             # Total column (10, was 8)
             elif col == 10:
                 return f"{row.total_hours():.2f}"
+
+        # Edit role - return raw value for editing (preserves existing values)
+        if role == Qt.EditRole:
+            # Totals row is not editable
+            if is_totals_row:
+                return None
+
+            # Regular data rows
+            row = self.rows[row_idx]
+
+            # Project number column
+            if col == 0:
+                return row.project_number
+
+            # Project name column
+            elif col == 1:
+                return row.project_name
+
+            # Project task column
+            elif col == 2:
+                return row.project_task
+
+            # Weekday columns (3-9) - return raw numeric value or current formatted value
+            elif 3 <= col <= 9:
+                weekday = self.WEEKDAYS[col - 3].lower()
+                value = row.get_weekday_value(weekday)
+                # Return the value as string for the editor to display
+                if value is not None:
+                    # Return clean number (no trailing zeros if whole number)
+                    if value == int(value):
+                        return str(int(value))
+                    return str(value)
+                return "0"
+
+            # Total column is not editable
+            elif col == 10:
+                return None
 
         return None
 
@@ -144,11 +193,140 @@ class TimesheetTableModel(QAbstractTableModel):
 
         return ""
 
+    def flags(self, index):
+        """
+        Return item flags for the given index.
+
+        Makes data cells editable (except totals row and Total column).
+        """
+        if not index.isValid():
+            return Qt.NoItemFlags
+
+        row_idx = index.row()
+        col = index.column()
+        is_totals_row = (row_idx == len(self.rows))
+        is_total_column = (col == 10)
+
+        # Totals row and Total column are read-only
+        if is_totals_row or is_total_column:
+            return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+        # All other cells are editable
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
+
+    def setData(self, index, value, role=Qt.EditRole):
+        """
+        Set data for a cell (handles editing).
+
+        Args:
+            index: Model index
+            value: New value
+            role: Edit role
+
+        Returns:
+            True if edit succeeded, False otherwise
+        """
+        if role != Qt.EditRole or not index.isValid():
+            return False
+
+        row_idx = index.row()
+        col = index.column()
+
+        # Prevent editing totals row
+        if row_idx >= len(self.rows):
+            return False
+
+        row = self.rows[row_idx]
+
+        try:
+            # Column 0: project_number
+            if col == 0:
+                if not value or not value.strip():
+                    return False  # Cannot be empty
+                row.project_number = value.strip()
+
+            # Column 1: project_name
+            elif col == 1:
+                row.project_name = value.strip() if value else ""
+
+            # Column 2: project_task
+            elif col == 2:
+                row.project_task = value.strip() if value else ""
+
+            # Columns 3-9: weekdays
+            elif 3 <= col <= 9:
+                weekday = self.WEEKDAYS[col - 3].lower()
+                parsed_value = self._parse_hours_input(value)
+                setattr(row, weekday, parsed_value)
+
+            else:
+                return False
+
+            # Emit dataChanged signal
+            self.dataChanged.emit(index, index, [Qt.DisplayRole])
+
+            # Update dirty state
+            self._update_dirty_state()
+
+            return True
+
+        except ValueError:
+            return False
+
+    def _parse_hours_input(self, value: str) -> Optional[float]:
+        """
+        Parse hours input with validation.
+
+        Args:
+            value: Input string
+
+        Returns:
+            Parsed float value or None if empty
+
+        Raises:
+            ValueError: If value is invalid
+        """
+        if not value or not value.strip():
+            return None
+
+        try:
+            hours = float(value.strip())
+            if hours < 0:
+                raise ValueError("Hours cannot be negative")
+            return hours
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid hours value: {value}")
+
+    def _update_dirty_state(self):
+        """Check if model has unsaved changes and emit signal if changed."""
+        import copy
+        new_dirty = (self.rows != self._original_rows)
+
+        if new_dirty != self._is_dirty:
+            self._is_dirty = new_dirty
+            self.dirty_state_changed.emit(new_dirty)
+
     def setRows(self, rows: List[TimesheetRow]):
-        """Update the model with new rows."""
+        """
+        Update the model with new rows and mark as clean.
+
+        Args:
+            rows: New list of timesheet rows
+        """
+        import copy
         self.beginResetModel()
         self.rows = rows
+        self._original_rows = copy.deepcopy(rows)
+        self._is_dirty = False
         self.endResetModel()
+        self.dirty_state_changed.emit(False)
+
+    def mark_clean(self):
+        """Mark current state as clean (after save)."""
+        import copy
+        self._original_rows = copy.deepcopy(self.rows)
+        self._is_dirty = False
+        self.dirty_state_changed.emit(False)
 
 
 class AutomationWorker(QThread):
@@ -295,15 +473,38 @@ class TimesheetGUI(QMainWindow):
         self.fetch_button.clicked.connect(self.fetchTemplateFromTMS)
         layout.addWidget(self.fetch_button)
 
+        # Save buttons section
+        save_layout = QHBoxLayout()
+
+        self.save_button = QPushButton("Save")
+        self.save_button.setEnabled(False)  # Disabled until dirty
+        self.save_button.clicked.connect(self.saveCSV)
+        save_layout.addWidget(self.save_button)
+
+        self.save_as_button = QPushButton("Save As...")
+        self.save_as_button.setEnabled(False)  # Disabled until data loaded
+        self.save_as_button.clicked.connect(self.saveCSVAs)
+        save_layout.addWidget(self.save_as_button)
+
+        save_layout.addStretch()
+        layout.addLayout(save_layout)
+
         # Table view
         self.table_view = QTableView()
         self.table_model = TimesheetTableModel()
         self.table_view.setModel(self.table_model)
 
-        # Configure table appearance
-        self.table_view.setEditTriggers(QTableView.NoEditTriggers)  # Read-only
+        # Configure table appearance and enable editing
+        self.table_view.setEditTriggers(
+            QAbstractItemView.DoubleClicked |
+            QAbstractItemView.SelectedClicked |
+            QAbstractItemView.EditKeyPressed
+        )  # Enable editing
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table_view.verticalHeader().setVisible(True)
+
+        # Connect dirty state signal
+        self.table_model.dirty_state_changed.connect(self.onDirtyStateChanged)
 
         layout.addWidget(self.table_view)
 
@@ -350,6 +551,24 @@ class TimesheetGUI(QMainWindow):
 
     def openFileDialog(self):
         """Open file dialog to select a CSV file."""
+        # Warn if there are unsaved changes
+        if self.table_model._is_dirty:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to save before opening a new file?",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Save
+            )
+
+            if reply == QMessageBox.Save:
+                self.saveCSV()
+                if self.table_model._is_dirty:
+                    # Save failed or was cancelled
+                    return
+            elif reply == QMessageBox.Cancel:
+                return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Open CSV File",
@@ -359,6 +578,29 @@ class TimesheetGUI(QMainWindow):
 
         if file_path:
             self.loadCSV(file_path)
+
+    def closeEvent(self, event):
+        """Handle window close event."""
+        if self.table_model._is_dirty:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to save before closing?",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Save
+            )
+
+            if reply == QMessageBox.Save:
+                self.saveCSV()
+                if self.table_model._is_dirty:
+                    # Save failed or was cancelled
+                    event.ignore()
+                    return
+            elif reply == QMessageBox.Cancel:
+                event.ignore()
+                return
+
+        event.accept()
 
     def loadCSV(self, file_path: str):
         """
@@ -372,9 +614,13 @@ class TimesheetGUI(QMainWindow):
             self.table_model.setRows(self.rows)
             self.csv_path = file_path
 
-            # Update file label
+            # Enable Save As button
+            self.save_as_button.setEnabled(True)
+
+            # Update file label and window title
             file_name = Path(file_path).name
             self.file_label.setText(f"File: {file_name}")
+            self.setWindowTitle(f"Timesheet Automation - {file_name}")
 
             # Show success message briefly
             QMessageBox.information(
@@ -396,10 +642,155 @@ class TimesheetGUI(QMainWindow):
                 f"Unexpected error loading CSV:\n\n{str(e)}"
             )
 
+    def onDirtyStateChanged(self, is_dirty: bool):
+        """Handle model dirty state changes."""
+        # Enable Save button only if dirty AND we have a file path
+        self.save_button.setEnabled(is_dirty and self.csv_path is not None)
+
+        # Update window title to show unsaved changes
+        title = "Timesheet Automation"
+        if self.csv_path:
+            file_name = Path(self.csv_path).name
+            title += f" - {file_name}"
+        if is_dirty:
+            title += " *"
+        self.setWindowTitle(title)
+
+    def saveCSV(self):
+        """Save changes to the current CSV file."""
+        if not self.csv_path:
+            # No file path, fallback to Save As
+            self.saveCSVAs()
+            return
+
+        if not self.rows:
+            QMessageBox.warning(self, "No Data", "No data to save.")
+            return
+
+        try:
+            self._write_csv_file(self.csv_path)
+            self.table_model.mark_clean()
+
+            file_name = Path(self.csv_path).name
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Saved {len(self.rows)} project(s) to {file_name}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Failed",
+                f"Failed to save CSV file:\n\n{str(e)}"
+            )
+
+    def saveCSVAs(self):
+        """Save data to a new CSV file."""
+        if not self.rows:
+            QMessageBox.warning(self, "No Data", "No data to save.")
+            return
+
+        # Open file dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save CSV File",
+            self.csv_path if self.csv_path else "timesheet.csv",
+            "CSV Files (*.csv);;All Files (*)"
+        )
+
+        if not file_path:
+            return  # User cancelled
+
+        try:
+            self._write_csv_file(file_path)
+            self.csv_path = file_path
+            self.table_model.mark_clean()
+
+            file_name = Path(file_path).name
+            self.file_label.setText(f"File: {file_name}")
+            self.setWindowTitle(f"Timesheet Automation - {file_name}")
+
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Saved {len(self.rows)} project(s) to {file_name}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Failed",
+                f"Failed to save CSV file:\n\n{str(e)}"
+            )
+
+    def _write_csv_file(self, file_path: str):
+        """
+        Write current rows to CSV file using canonical schema.
+
+        Args:
+            file_path: Path to write CSV file
+
+        Raises:
+            Exception: If write fails
+        """
+        import csv
+        from .csv_schema import CSVSchema
+
+        # Validate data
+        if not self.rows:
+            raise ValueError("No data to save")
+
+        # Convert TimesheetRow objects to CSV dictionaries
+        csv_rows = []
+        for row in self.rows:
+            csv_row = {
+                CSVSchema.PROJECT_NUMBER: row.project_number,
+                CSVSchema.PROJECT_NAME: row.project_name,
+                CSVSchema.PROJECT_TASK: row.project_task,
+                CSVSchema.MONDAY: str(row.monday) if row.monday is not None else '',
+                CSVSchema.TUESDAY: str(row.tuesday) if row.tuesday is not None else '',
+                CSVSchema.WEDNESDAY: str(row.wednesday) if row.wednesday is not None else '',
+                CSVSchema.THURSDAY: str(row.thursday) if row.thursday is not None else '',
+                CSVSchema.FRIDAY: str(row.friday) if row.friday is not None else '',
+                CSVSchema.SATURDAY: str(row.saturday) if row.saturday is not None else '',
+                CSVSchema.SUNDAY: str(row.sunday) if row.sunday is not None else '',
+            }
+            csv_rows.append(csv_row)
+
+        # Write to file using CSVSchema standards
+        try:
+            with open(file_path, 'w', encoding=CSVSchema.ENCODING, newline=CSVSchema.NEWLINE) as f:
+                writer = csv.DictWriter(f, fieldnames=CSVSchema.CANONICAL_HEADERS)
+                writer.writeheader()
+                writer.writerows(csv_rows)
+        except PermissionError:
+            raise Exception("Cannot write to file. File may be open in another program.")
+        except OSError as e:
+            raise Exception(f"File system error: {e}")
+
     def fetchTemplateFromTMS(self):
         """
         Fetch current template from TMS by opening browser and extracting projects.
         """
+        # Warn if there are unsaved changes
+        if self.table_model._is_dirty:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to save before fetching a new template?",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Save
+            )
+
+            if reply == QMessageBox.Save:
+                self.saveCSV()
+                if self.table_model._is_dirty:
+                    # Save failed or was cancelled
+                    return
+            elif reply == QMessageBox.Cancel:
+                return
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Template CSV",
