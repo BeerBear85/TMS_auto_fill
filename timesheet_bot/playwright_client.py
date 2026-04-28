@@ -580,6 +580,11 @@ class TMSClient:
 
             input_locator.fill(value_str)
 
+            # Trigger blur to ensure Angular's change detection registers the value.
+            # Without blur, the last filled cell may not mark the form as dirty,
+            # causing the Save button to remain hidden.
+            input_locator.blur()
+
             # Verify the fill
             new_value = input_locator.input_value()
             if new_value:
@@ -596,6 +601,52 @@ class TMSClient:
             log_warning(f"    {weekday}: error - {e}", self.logger)
             return result
 
+    def _find_save_button_via_js(self):
+        """
+        Use JavaScript to locate the save button by scanning all visible
+        interactive elements for text containing 'save' (case-insensitive).
+
+        Returns the element handle, or None if not found.
+        Also logs all visible interactive elements to aid debugging.
+        """
+        result = self.page.evaluate("""
+            () => {
+                const candidates = [
+                    ...document.querySelectorAll('button, a, [role="button"], input[type="submit"], input[type="button"]')
+                ];
+                const visible = candidates.filter(el => {
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        style.opacity !== '0'
+                    );
+                });
+                const saveEl = visible.find(el =>
+                    el.textContent.trim().toLowerCase().includes('save')
+                );
+                return {
+                    found: !!saveEl,
+                    saveInfo: saveEl ? {
+                        tag: saveEl.tagName,
+                        text: saveEl.textContent.trim(),
+                        classes: saveEl.className,
+                        id: saveEl.id
+                    } : null,
+                    allVisible: visible.map(el => ({
+                        tag: el.tagName,
+                        text: el.textContent.trim().substring(0, 60),
+                        classes: el.className,
+                        id: el.id
+                    }))
+                };
+            }
+        """)
+        return result
+
     def click_save(self) -> bool:
         """
         Click the "Save" button (appears after data entry).
@@ -608,48 +659,64 @@ class TMSClient:
         """
         log_step("Waiting for Save button to appear...", self.logger)
 
+        # Poll for the save button using JS (handles any tag/text variant)
+        deadline_ms = 15000
+        poll_interval_ms = 500
+        elapsed_ms = 0
+
+        while elapsed_ms < deadline_ms:
+            js_result = self._find_save_button_via_js()
+            if js_result and js_result.get('found'):
+                info = js_result['saveInfo']
+                self.logger.debug(
+                    f"Save button found via JS: <{info['tag']}> "
+                    f"text='{info['text']}' classes='{info['classes']}'"
+                )
+                break
+            self.page.wait_for_timeout(poll_interval_ms)
+            elapsed_ms += poll_interval_ms
+        else:
+            # Button never appeared — log all visible interactive elements to aid debugging
+            js_result = self._find_save_button_via_js()
+            log_error("Save button did not appear (timeout)", self.logger)
+            log_warning("Note: Save button only appears after data entry", self.logger)
+            if js_result:
+                visible = js_result.get('allVisible', [])
+                if visible:
+                    log_warning("Visible interactive elements on page at timeout:", self.logger)
+                    for el in visible:
+                        log_warning(
+                            f"  <{el['tag']}> text='{el['text']}' "
+                            f"classes='{el['classes']}' id='{el['id']}'",
+                            self.logger
+                        )
+                else:
+                    log_warning("No visible interactive elements found on page", self.logger)
+            return False
+
         try:
-            # Wait for the Save button to appear (it shows after data entry)
-            # Try primary selector first
-            button = self.page.locator(TMSSelectors.SAVE_BUTTON).first
-
-            try:
-                button.wait_for(state='visible', timeout=5000)  # 5 second wait
-                self.logger.debug("Save button found")
-            except PlaywrightTimeoutError:
-                # Try alternative selectors
-                self.logger.debug("Trying alternative Save button selectors...")
-                button = self.page.locator(TMSSelectors.SAVE_BUTTON_ALT).first
-
-                try:
-                    button.wait_for(state='visible', timeout=2000)
-                except PlaywrightTimeoutError:
-                    button = self.page.locator(TMSSelectors.SAVE_BUTTON_ALT2).first
-                    button.wait_for(state='visible', timeout=2000)
-
-            if button.count() == 0:
-                log_error("Save button not found after waiting", self.logger)
-                return False
-
-            # Click the button
+            # Click via JS to bypass any Playwright visibility edge cases
+            self.page.evaluate("""
+                () => {
+                    const candidates = [
+                        ...document.querySelectorAll('button, a, [role="button"], input[type="submit"], input[type="button"]')
+                    ];
+                    const saveEl = candidates.find(el =>
+                        el.textContent.trim().toLowerCase().includes('save') &&
+                        el.getBoundingClientRect().width > 0
+                    );
+                    if (saveEl) saveEl.click();
+                }
+            """)
             log_step("Clicking Save button...", self.logger)
-            button.click()
-            self.logger.debug("Save button clicked")
+            self.logger.debug("Save button clicked via JS")
 
             # Wait for page reload after clicking Save
-            # BUG FIX: TMS reloads/refreshes the page after save with a loading animation
-            # Previous implementation incorrectly checked if button disappeared (it doesn't)
-            # We need to wait for the reload to complete before the browser closes
             self.logger.debug("Waiting for page reload to complete...")
-
             try:
-                # Strategy 1: Wait for navigation/reload to complete
-                # Use wait_for_load_state to ensure page is fully loaded
                 self.page.wait_for_load_state('networkidle', timeout=5000)
                 self.logger.debug("Page reload detected and completed")
             except Exception as e:
-                # If no reload detected, fallback to timeout
-                # (TMS might do a soft refresh without full navigation)
                 self.logger.debug(f"No page reload detected, using fallback wait: {e}")
                 self.page.wait_for_timeout(3000)
 
@@ -657,21 +724,15 @@ class TMSClient:
             self.page.wait_for_timeout(1000)
 
             # Optional: Verify save by checking if table is still present
-            # This is a strong indicator that save was successful
             try:
                 table = self.page.locator(TMSSelectors.TABLE).first
                 if table.count() > 0:
                     self.logger.debug("Table still present after save (save likely succeeded)")
             except Exception as e:
-                # Non-critical error - just log it
                 self.logger.debug(f"Could not verify table presence: {e}")
 
             return True
 
-        except PlaywrightTimeoutError:
-            log_error("Save button did not appear (timeout)", self.logger)
-            log_warning("Note: Save button only appears after data entry", self.logger)
-            return False
         except Exception as e:
             log_error(f"Failed to click Save: {e}", self.logger)
             return False
@@ -980,6 +1041,8 @@ def run_fill_operation(config: Config, rows: List[TimesheetRow]) -> FillSummary:
                 if config.auto_submit:
                     logger.info("")
                     logger.info(f"Saving week {target_week}...")
+                    # Brief wait for Angular to finish change detection after all fills
+                    client.page.wait_for_timeout(1500)
                     if not client.click_save():
                         # Fail-fast on submit failure
                         raise Exception(f"Auto-submit failed for Week {target_week}")
